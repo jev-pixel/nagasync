@@ -9,7 +9,7 @@ class Poll extends Model
 {
     use Auditable;
 
-    protected $fillable = ['title', 'description', 'barangay_id', 'opens_at', 'closes_at', 'is_published', 'created_by'];
+    protected $fillable = ['title', 'description', 'barangay_id', 'opens_at', 'closes_at', 'is_published', 'image_path', 'created_by'];
 
     protected $casts = ['opens_at' => 'datetime', 'closes_at' => 'datetime', 'is_published' => 'boolean'];
 

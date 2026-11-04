@@ -9,6 +9,7 @@ use App\Models\PollParticipation;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 
 class PollController extends Controller
@@ -35,6 +36,7 @@ class PollController extends Controller
 
                 return [
                     'id' => $p->id, 'title' => $p->title, 'description' => $p->description,
+                    'image_url' => $p->image_path ? route('polls.image', $p) : null,
                     'scope' => $p->barangay_id ? 'Barangay only' : 'City-wide',
                     'opens_at' => $p->opens_at->toDayDateTimeString(),
                     'closes_at' => $p->closes_at->toDayDateTimeString(),
@@ -47,6 +49,26 @@ class PollController extends Controller
                 ];
             }),
         ]);
+    }
+
+    /**
+     * Serve a poll's image from the private disk.
+     * Admins can preview drafts; citizens only see published polls in their own scope.
+     */
+    public function image(Request $request, Poll $poll)
+    {
+        $user = $request->user();
+        $isAdmin = $user->role === 'admin';
+
+        abort_unless($poll->image_path, 404);
+        abort_unless($isAdmin || $poll->is_published, 404);
+        abort_unless(
+            $isAdmin || $poll->barangay_id === null || (int) $poll->barangay_id === (int) $user->barangay_id,
+            403
+        );
+        abort_unless(Storage::disk('local')->exists($poll->image_path), 404);
+
+        return Storage::disk('local')->response($poll->image_path);
     }
 
     public function vote(Request $request, Poll $poll)

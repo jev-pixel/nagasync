@@ -107,6 +107,7 @@ Route::middleware('auth')->group(function () {
         // Community Polls require a verified resident
         Route::middleware('resident.verified')->group(function () {
             Route::get('/polls', [PollController::class, 'index'])->name('polls.index');
+            Route::get('/polls/{poll}/image', [PollController::class, 'image'])->name('polls.image');
             Route::post('/polls/{poll}/vote', [PollController::class, 'vote'])
                 ->middleware('throttle:10,1')->name('polls.vote');
         });
