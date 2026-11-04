@@ -1,24 +1,31 @@
 <script setup>
 import ApplicationLogo from '@/Components/ApplicationLogo.vue';
+import GovBanner from '@/Components/GovBanner.vue';
 import { Link } from '@inertiajs/vue3';
 </script>
 
 <template>
-    <div class="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-surface px-4 py-10">
-        <!-- Brand-colored glow, matching the app layout's header gradient -->
-        <div class="pointer-events-none absolute inset-x-0 top-0 h-96 bg-gradient-to-b from-brand-200/60 via-brand-100/30 to-transparent"></div>
-        <div class="pointer-events-none absolute -bottom-32 -right-32 h-96 w-96 rounded-full bg-accent-400/15 blur-3xl"></div>
+    <div class="flex min-h-screen flex-col bg-ns-canvas">
+        <GovBanner />
 
-        <div class="relative z-10 flex w-full max-w-md flex-col items-center motion-safe:animate-fade-in">
-            <Link href="/" aria-label="NagaSync home">
-                <ApplicationLogo class="h-24 w-24 shadow-card" />
-            </Link>
+        <div class="flex flex-1 items-center justify-center px-4 py-10">
+            <div class="w-full max-w-md motion-safe:animate-fade-in">
+                <div class="flex flex-col items-center text-center">
+                    <Link href="/" aria-label="NagaSync home">
+                        <ApplicationLogo class="h-20 w-20 rounded-2xl shadow-card" />
+                    </Link>
+                    <h1 class="mt-4 text-2xl font-extrabold text-ns-ink">NagaSync</h1>
+                    <p class="text-sm text-slate-500">One portal for city and barangay services.</p>
+                </div>
 
-            <h1 class="mt-4 text-2xl font-bold text-brand-900">NagaSync</h1>
-            <p class="text-sm text-gray-500">Your barangay, connected.</p>
+                <div class="mt-6 w-full overflow-hidden rounded-2xl border border-ns-mist bg-white shadow-card">
+                    <div class="h-1 bg-gradient-to-r from-ns-orange via-ns-teal to-ns-violet" aria-hidden="true"></div>
+                    <div class="px-6 py-6"><slot /></div>
+                </div>
 
-            <div class="mt-6 w-full rounded-card bg-white px-6 py-6 shadow-card ring-1 ring-brand-100">
-                <slot />
+                <p class="mt-4 text-center text-xs text-slate-500">
+                    <Link :href="route('privacy')" class="underline">Privacy notice</Link>
+                </p>
             </div>
         </div>
     </div>

@@ -26,6 +26,7 @@ class AccessControlTest extends TestCase
             'treasury'       => ['/treasury/payments', ['treasury', 'admin']],
             'dispatch'       => ['/dispatch', ['mdrrmo', 'admin']],
             'residents' => ['/staff/residents', ['barangay_staff', 'admin']],
+            'business reviews' => ['/staff/businesses', ['barangay_staff', 'admin']],
         ];
     }
 
@@ -41,7 +42,7 @@ class AccessControlTest extends TestCase
 
     public function test_guests_are_sent_to_login(): void
     {
-        foreach (['/documents', '/payments', '/polls', '/emergency', '/market', '/admin/command-center'] as $url) {
+        foreach (['/documents', '/payments', '/polls', '/emergency', '/market', '/my-businesses', '/admin/command-center'] as $url) {
             $this->get($url)->assertRedirect('/login');
         }
     }

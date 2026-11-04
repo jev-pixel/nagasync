@@ -1,72 +1,70 @@
 <script setup>
-import ApplicationLogo from '@/Components/ApplicationLogo.vue';
-import Icon from '@/Components/Icon.vue';
-import { isActive, roleLabels } from '@/Composables/useNavigation';
+import BrandMark from '@/Components/BrandMark.vue';
+import { useNavigation } from '@/navigation';
 import { Link } from '@inertiajs/vue3';
-import { defineProps, } from 'vue';
+import { Phone } from 'lucide-vue-next';
+import { computed } from 'vue';
 
-defineProps({
-    groups: { type: Array, required: true },
-    user: { type: Object, required: true },
-});
+const { items, tabs, isActive } = useNavigation();
 
-const initials = (name = '') =>
-    name.split(' ').filter(Boolean).slice(0, 2).map((p) => p[0].toUpperCase()).join('');
+// Roles that can open /emergency get the red call button in the middle of the mobile bar
+const hasEmergency = computed(() => items.value.some((i) => i.key === 'emergency'));
+
+const ring = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ns-orange';
+
+const railLink = (active) => [
+    'relative z-10 ml-3 flex h-14 items-center justify-center transition-colors duration-150',
+    ring, 'focus-visible:ring-offset-2 focus-visible:ring-offset-ns-navy',
+    active ? 'ns-notch text-ns-ink' : 'mr-3 rounded-2xl text-white/70 hover:bg-white/10 hover:text-white active:bg-white/20',
+];
+
+const stripLink = (active) => [
+    'flex h-14 w-16 flex-col items-center justify-center gap-0.5 rounded-xl text-[11px] font-semibold transition active:scale-95',
+    ring, active ? 'text-ns-orange' : 'text-white/70 hover:text-white',
+];
 </script>
 
 <template>
-    <aside class="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col bg-gradient-to-b from-brand-800 via-brand-900 to-brand-900 text-brand-100 lg:flex">
-        <Link :href="route('dashboard')" class="flex items-center gap-3 px-6 py-6">
-            <ApplicationLogo class="h-8 w-8 fill-current text-white" />
-            <span class="text-lg font-bold text-white">NagaSync</span>
+    <!-- Desktop / tablet: icon rail with the cut-out notch -->
+    <nav data-testid="sidenav" aria-label="Primary" class="fixed inset-y-0 left-0 z-40 hidden w-20 flex-col bg-ns-navy md:flex">
+        <Link :href="route('dashboard')" aria-label="NagaSync home"
+              :class="['mx-auto mb-1 mt-4 rounded-2xl', ring]">
+            <BrandMark />
+        </Link>
+        <ul class="scrollbar-none mt-2 flex flex-1 flex-col gap-2 overflow-y-auto py-6">
+            <li v-for="item in items" :key="item.key">
+                <Link :href="route(item.route)" :class="railLink(isActive(item))" :title="item.label"
+                      :aria-label="item.label" :aria-current="isActive(item) ? 'page' : undefined">
+                    <component :is="item.icon" class="h-6 w-6" aria-hidden="true" />
+                </Link>
+            </li>
+        </ul>
+    </nav>
+
+    <!-- Mobile: Home, Services, [centre button], Activity, Profile -->
+    <nav data-testid="bottom-nav" aria-label="Primary"
+         class="fixed inset-x-0 bottom-0 z-40 flex h-[calc(4rem+env(safe-area-inset-bottom))] items-start justify-around bg-ns-navy px-2 pb-[env(safe-area-inset-bottom)] pt-1 text-white shadow-[0_-8px_24px_rgba(30,27,58,.15)] md:hidden">
+        <Link v-for="t in tabs.left" :key="t.key" :href="route(t.route)" :class="stripLink(isActive(t))"
+              :aria-current="isActive(t) ? 'page' : undefined">
+            <component :is="t.icon" class="h-6 w-6" aria-hidden="true" />
+            {{ t.label }}
         </Link>
 
-        <nav class="flex-1 space-y-6 overflow-y-auto px-3 pb-6" aria-label="Main">
-            <Link
-                :href="route('dashboard')"
-                class="relative flex items-center gap-3 rounded-tile px-3 py-2.5 text-sm font-medium transition-colors"
-                :class="isActive(['dashboard']) ? 'bg-white/10 text-white' : 'hover:bg-white/5 hover:text-white'"
-            >
-                <span v-if="isActive(['dashboard'])" class="absolute inset-y-2 left-0 w-1 rounded-r bg-accent-500"></span>
-                <Icon name="home" class="h-5 w-5" />
-                Home
-            </Link>
+        <!-- Gap for the centre button; carries its label when it is the Emergency button -->
+        <span class="flex h-14 w-16 items-end justify-center text-[11px] font-semibold text-white/70">
+            <template v-if="hasEmergency">Emergency</template>
+        </span>
 
-            <div v-for="g in groups" :key="g.label">
-                <p class="px-3 pb-1 text-xs font-medium text-brand-300">{{ g.label }}</p>
-                <Link
-                    v-for="i in g.items"
-                    :key="i.route"
-                    :href="route(i.route)"
-                    class="relative flex items-center gap-3 rounded-tile px-3 py-2.5 text-sm font-medium transition-colors"
-                    :class="isActive(i.match) ? 'bg-white/10 text-white' : 'hover:bg-white/5 hover:text-white'"
-                >
-                    <span v-if="isActive(i.match)" class="absolute inset-y-2 left-0 w-1 rounded-r bg-accent-500"></span>
-                    <Icon :name="i.icon" class="h-5 w-5" :class="i.danger ? 'text-red-300' : ''" />
-                    {{ i.label }}
-                </Link>
-            </div>
-        </nav>
+        <Link v-for="t in tabs.right" :key="t.key" :href="route(t.route)" :class="stripLink(isActive(t))"
+              :aria-current="isActive(t) ? 'page' : undefined">
+            <component :is="t.icon" class="h-6 w-6" aria-hidden="true" />
+            {{ t.label }}
+        </Link>
+    </nav>
 
-        <div class="border-t border-white/10 p-3">
-            <Link :href="route('profile.edit')" class="flex items-center gap-3 rounded-tile px-3 py-2 hover:bg-white/5">
-                <span class="flex h-9 w-9 items-center justify-center rounded-full bg-brand-500 text-sm font-semibold text-white">
-                    {{ initials(user.name) }}
-                </span>
-                <span class="min-w-0">
-                    <span class="block truncate text-sm font-medium text-white">{{ user.name }}</span>
-                    <span class="block text-xs text-brand-300">{{ roleLabels[user.role] ?? user.role }}</span>
-                </span>
-            </Link>
-            <Link
-                :href="route('logout')"
-                method="post"
-                as="button"
-                class="mt-1 flex w-full items-center gap-3 rounded-tile px-3 py-2 text-sm hover:bg-white/5 hover:text-white"
-            >
-                <Icon name="logout" class="h-5 w-5" />
-                Log out
-            </Link>
-        </div>
-    </aside>
+    <!-- Mobile centre button: red call button to Emergency (other roles keep the quick-action button) -->
+    <Link v-if="hasEmergency" :href="route('emergency.index')" aria-label="Emergency" data-testid="emergency-fab"
+          class="fixed bottom-[calc(1.75rem+env(safe-area-inset-bottom))] left-1/2 z-50 flex h-16 w-16 -translate-x-1/2 items-center justify-center rounded-full bg-red-600 text-white shadow-lg ring-4 ring-ns-canvas transition duration-150 active:scale-95 focus-visible:outline-none focus-visible:ring-ns-orange md:hidden">
+        <Phone class="h-7 w-7" aria-hidden="true" />
+    </Link>
 </template>

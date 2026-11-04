@@ -12,19 +12,17 @@ return Application::configure(basePath: dirname(__DIR__))
         channels: __DIR__.'/../routes/channels.php',
         health: '/up',
     )
-    ->withMiddleware(function (Middleware $middleware): void {
-        // Railway terminates HTTPS at its proxy; trust it so URLs and redirects use https.
-        $middleware->trustProxies(at: '*');
+        ->withMiddleware(function (Middleware $middleware): void {
+            $middleware->web(append: [
+                \App\Http\Middleware\HandleInertiaRequests::class,
+                \Illuminate\Http\Middleware\AddLinkHeadersForPreloadedAssets::class,
+            ]);
 
-        $middleware->web(append: [
-            \App\Http\Middleware\HandleInertiaRequests::class,
-            \Illuminate\Http\Middleware\AddLinkHeadersForPreloadedAssets::class,
-        ]);
-
-        $middleware->alias([
-            'role' => \App\Http\Middleware\EnsureUserHasRole::class,
-        ]);
-    })
+            $middleware->alias([
+                'role'              => \App\Http\Middleware\EnsureUserHasRole::class,
+                'resident.verified' => \App\Http\Middleware\EnsureResidentVerified::class,
+            ]);
+        })
     ->withExceptions(function (Exceptions $exceptions): void {
         //
     })->create();

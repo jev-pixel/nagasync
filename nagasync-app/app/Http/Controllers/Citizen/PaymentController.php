@@ -21,6 +21,7 @@ class PaymentController extends Controller
             'payments' => MunicipalPayment::where('user_id', $request->user()->id)->latest()->get()
                 ->map(fn ($p) => [
                     'id' => $p->id, 'reference_no' => $p->reference_no,
+                    'payment_type' => $p->payment_type,
                     'label' => $types[$p->payment_type]['label'] ?? $p->payment_type,
                     'total' => $p->total, 'status' => $p->status,
                     'paid_at' => $p->paid_at?->toDayDateTimeString(),
@@ -53,5 +54,24 @@ class PaymentController extends Controller
         $payment->update(['gateway_ref' => $checkout['gateway_ref']]);
 
         return Inertia::location($checkout['url']); // full-page redirect, works for external gateways too
+    }
+
+    /**
+     * Let a resident finish a payment they started but did not complete.
+     * Mirrors store(): same gateway call, same full-page redirect.
+     */
+    public function resume(Request $request, MunicipalPayment $payment, PaymentGateway $gateway)
+    {
+        abort_unless($payment->user_id === $request->user()->id, 403);
+
+        if ($payment->status !== 'pending') {
+            return redirect()->route('payments.index')
+                ->with('error', 'This payment can no longer be continued. Please start a new one.');
+        }
+
+        $checkout = $gateway->createCheckout($payment);
+        $payment->update(['gateway_ref' => $checkout['gateway_ref']]);
+
+        return Inertia::location($checkout['url']);
     }
 }

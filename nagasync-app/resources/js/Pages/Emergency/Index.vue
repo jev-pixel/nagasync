@@ -1,11 +1,7 @@
 <script setup>
-import Card from '@/Components/Card.vue';
-import EmptyState from '@/Components/EmptyState.vue';
-import Icon from '@/Components/Icon.vue';
-import StatusBadge from '@/Components/StatusBadge.vue';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head, router, useForm } from '@inertiajs/vue3';
-import { computed, defineProps, onMounted, onUnmounted, ref } from 'vue';
+import { defineProps, onMounted, onUnmounted, ref } from 'vue';
 
 defineProps({ types: Array, alerts: Array });
 
@@ -18,12 +14,8 @@ let holdTimer = null;
 let holdStart = 0;
 let poll;
 
-// Progress ring around the button
-const RING = 2 * Math.PI * 104;
-const ringOffset = computed(() => RING * (1 - progress.value / 100));
-
 function startHold() {
-    if (holdTimer || busy.value || form.processing) return; // also ignores key auto-repeat
+    if (busy.value || form.processing) return;
     holdStart = performance.now();
     holdTimer = setInterval(() => {
         progress.value = Math.min(100, ((performance.now() - holdStart) / HOLD_MS) * 100);
@@ -77,6 +69,11 @@ onMounted(() => {
     }, 10000);
 });
 onUnmounted(() => { clearInterval(poll); cancelHold(); });
+
+const badge = {
+    active: 'bg-red-100 text-red-800', dispatched: 'bg-blue-100 text-blue-800',
+    resolved: 'bg-green-100 text-green-800', false_alarm: 'bg-gray-200 text-gray-700',
+};
 </script>
 
 <template>
@@ -84,67 +81,45 @@ onUnmounted(() => { clearInterval(poll); cancelHold(); });
     <AuthenticatedLayout>
         <template #header><h2 class="text-xl font-semibold text-gray-800">Emergency Alert</h2></template>
 
-        <div class="mx-auto max-w-xl space-y-5 px-4 py-6 sm:px-6">
-            <div class="rounded-card border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+        <div class="mx-auto max-w-xl space-y-6 p-6">
+            <div class="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
                 In a life-threatening emergency, also call <strong>911</strong> or your local emergency hotline.
                 This alert goes to your local responders and shares your location with them.
             </div>
 
-            <Card class="space-y-5 text-center">
-                <div>
-                    <p class="mb-2 text-sm text-gray-500">What kind of emergency?</p>
-                    <div class="flex flex-wrap justify-center gap-2">
-                        <button v-for="t in types" :key="t" type="button" @click="form.alert_type = t"
-                                :aria-pressed="form.alert_type === t"
-                                :class="form.alert_type === t ? 'bg-brand-900 text-white' : 'bg-brand-50 text-brand-800 hover:bg-brand-100'"
-                                class="min-h-[40px] rounded-full px-4 text-sm font-medium capitalize transition-colors">{{ t }}</button>
-                    </div>
+            <div class="space-y-4 rounded-lg bg-white p-6 text-center shadow">
+                <div class="flex flex-wrap justify-center gap-2">
+                    <button v-for="t in types" :key="t" type="button" @click="form.alert_type = t"
+                            :class="form.alert_type === t ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-700'"
+                            class="rounded-full px-3 py-1 text-sm capitalize">{{ t }}</button>
                 </div>
 
-                <div class="relative mx-auto h-56 w-56">
-                    <svg viewBox="0 0 224 224" class="absolute inset-0 -rotate-90" aria-hidden="true">
-                        <circle cx="112" cy="112" r="104" fill="none" stroke-width="8" class="stroke-red-100" />
-                        <circle cx="112" cy="112" r="104" fill="none" stroke-width="8" stroke-linecap="round"
-                                class="stroke-red-600" :stroke-dasharray="RING" :stroke-dashoffset="ringOffset" />
-                    </svg>
-                    <button type="button"
-                            @pointerdown.prevent="startHold" @pointerup="cancelHold"
-                            @pointerleave="cancelHold" @pointercancel="cancelHold"
-                            @keydown.space.prevent="startHold" @keydown.enter.prevent="startHold"
-                            @keyup.space="cancelHold" @keyup.enter="cancelHold" @blur="cancelHold"
-                            :disabled="busy || form.processing"
-                            class="absolute inset-4 flex select-none touch-none flex-col items-center justify-center gap-1 rounded-full bg-red-600 text-white shadow-lg transition-transform focus:outline-none focus-visible:ring-4 focus-visible:ring-red-300 active:scale-[0.97] disabled:opacity-60">
-                        <Icon name="alert" class="h-10 w-10" />
-                        <span class="text-lg font-bold">{{ busy ? 'Sending...' : 'Hold to send' }}</span>
-                        <span v-if="!busy" class="text-xs text-red-100">Press and hold for 1.5 seconds</span>
-                    </button>
-                </div>
+                <button type="button"
+                        @pointerdown.prevent="startHold" @pointerup="cancelHold"
+                        @pointerleave="cancelHold" @pointercancel="cancelHold"
+                        :disabled="busy || form.processing"
+                        class="relative mx-auto flex h-44 w-44 select-none items-center justify-center overflow-hidden rounded-full bg-red-600 text-lg font-bold text-white shadow-lg disabled:opacity-60">
+                    <span class="absolute bottom-0 left-0 w-full bg-red-900/60" :style="{ height: progress + '%' }"></span>
+                    <span class="relative">{{ busy ? 'SENDING...' : 'HOLD TO SEND ALERT' }}</span>
+                </button>
 
                 <input v-model="form.note" maxlength="255" placeholder="Optional note (e.g. landmark, what happened)"
-                       class="w-full rounded-tile border-gray-300 text-sm" />
-                <p v-if="geoMessage" class="text-sm text-gray-600" role="status">{{ geoMessage }}</p>
-                <p v-if="form.recentlySuccessful" class="text-sm font-semibold text-green-700" role="status">
+                       class="w-full rounded border-gray-300 text-sm" />
+                <p v-if="geoMessage" class="text-sm text-gray-600">{{ geoMessage }}</p>
+                <p v-if="form.recentlySuccessful" class="text-sm font-semibold text-green-700">
                     Alert sent. Stay where you are if it is safe.
                 </p>
                 <p v-if="form.errors.alert_type || form.errors.note" class="text-sm text-red-600">
                     {{ form.errors.alert_type || form.errors.note }}
                 </p>
-            </Card>
+            </div>
 
-            <div>
-                <h3 class="mb-2 text-sm font-semibold text-gray-700">Your alerts</h3>
-                <Card :padded="false" class="overflow-hidden">
-                    <ul class="divide-y divide-gray-100">
-                        <li v-for="a in alerts" :key="a.id" class="flex items-center justify-between gap-3 p-4">
-                            <div class="min-w-0">
-                                <p class="font-semibold capitalize">{{ a.type }}</p>
-                                <p class="text-xs text-gray-500">{{ a.at }} · {{ a.located ? 'location shared' : 'no location' }}</p>
-                            </div>
-                            <StatusBadge :status="a.status" />
-                        </li>
-                    </ul>
-                    <EmptyState v-if="!alerts.length" title="No alerts sent" text="Alerts you send will be listed here with their status." icon="bell" />
-                </Card>
+            <div v-for="a in alerts" :key="a.id" class="flex items-center justify-between rounded-lg bg-white p-4 shadow">
+                <div>
+                    <p class="font-semibold capitalize">{{ a.type }}</p>
+                    <p class="text-xs text-gray-500">{{ a.at }} · {{ a.located ? 'location shared' : 'no location' }}</p>
+                </div>
+                <span :class="badge[a.status]" class="rounded px-2 py-0.5 text-xs font-medium capitalize">{{ a.status.replace('_', ' ') }}</span>
             </div>
         </div>
     </AuthenticatedLayout>

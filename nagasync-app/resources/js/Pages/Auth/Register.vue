@@ -5,7 +5,6 @@ import PrimaryButton from '@/Components/PrimaryButton.vue';
 import TextInput from '@/Components/TextInput.vue';
 import GuestLayout from '@/Layouts/GuestLayout.vue';
 import { Head, Link, useForm } from '@inertiajs/vue3';
-import { defineProps, } from 'vue';
 
 defineProps({ barangays: { type: Array, default: () => [] } });
 
@@ -47,7 +46,7 @@ const submit = () => {
             <div class="mt-4">
                 <InputLabel for="barangay_id" value="Barangay" />
                 <select id="barangay_id" v-model="form.barangay_id" required
-                        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+                        class="mt-1 block w-full rounded-xl border-ns-mist shadow-sm focus:border-ns-violet focus:ring-ns-violet">
                     <option value="" disabled>Select your barangay</option>
                     <option v-for="b in barangays" :key="b.id" :value="b.id">{{ b.name }}</option>
                 </select>
@@ -67,24 +66,24 @@ const submit = () => {
             </div>
 
             <div class="mt-4">
-                <label class="flex items-start gap-2 text-sm text-gray-600">
+                <label class="flex items-start gap-2 text-sm text-slate-600">
                     <input type="checkbox" v-model="form.privacy_consent"
-                           class="mt-0.5 rounded border-gray-300 text-indigo-600 shadow-sm focus:ring-indigo-500" />
+                           class="mt-0.5 rounded border-slate-300 text-ns-violet shadow-sm focus:ring-ns-violet" />
                     <span>
                         I have read and agree to the
-                        <a :href="route('privacy')" target="_blank" class="text-indigo-600 underline">Privacy Notice</a>.
+                        <a :href="route('privacy')" target="_blank" class="text-ns-violet underline">Privacy Notice</a>.
                     </span>
                 </label>
                 <InputError class="mt-2" :message="form.errors.privacy_consent" />
             </div>
 
-            <div class="mt-4 flex items-center justify-end">
+            <div class="mt-4 flex flex-wrap items-center justify-end gap-3">
                 <Link :href="route('login')"
-                      class="rounded-md text-sm text-gray-600 underline hover:text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2">
+                      class="rounded-md text-sm text-slate-600 underline hover:text-ns-ink focus:outline-none focus:ring-2 focus:ring-ns-violet focus:ring-offset-2">
                     Already registered?
                 </Link>
 
-                <PrimaryButton class="ms-4" :class="{ 'opacity-25': form.processing }" :disabled="form.processing">
+                <PrimaryButton class="sm:ms-1" :class="{ 'opacity-50': form.processing }" :disabled="form.processing">
                     Register
                 </PrimaryButton>
             </div>

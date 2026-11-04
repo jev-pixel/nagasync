@@ -2,26 +2,17 @@
 @tailwind components;
 @tailwind utilities;
 
-html {
-    -webkit-tap-highlight-color: transparent;
+@layer base {
+    body { @apply bg-ns-canvas text-ns-ink antialiased; }
 }
 
-/* iOS zooms the page when a focused field is under 16px. Keep fields at 16px
-   on phones only, so desktop density is unchanged. */
-@media (max-width: 639px) {
-    input:not([type='checkbox']):not([type='radio']),
-    select,
-    textarea {
-        font-size: 16px;
-    }
-}
+@layer components {
+    /* Active rail item: same colour as the page, with concave corners that "cut out" of the rail */
+    .ns-notch { position: relative; background: theme('colors.ns.canvas'); border-radius: 9999px 0 0 9999px; }
+    .ns-notch::before, .ns-notch::after { content: ''; position: absolute; right: 0; width: 20px; height: 20px; pointer-events: none; }
+    .ns-notch::before { top: -20px; border-bottom-right-radius: 20px; box-shadow: 0 10px 0 0 theme('colors.ns.canvas'); }
+    .ns-notch::after { bottom: -20px; border-top-right-radius: 20px; box-shadow: 0 -10px 0 0 theme('colors.ns.canvas'); }
 
-@media (prefers-reduced-motion: reduce) {
-    *,
-    *::before,
-    *::after {
-        animation-duration: 0.01ms !important;
-        animation-iteration-count: 1 !important;
-        transition-duration: 0.01ms !important;
-    }
+    .scrollbar-none { scrollbar-width: none; -ms-overflow-style: none; }
+    .scrollbar-none::-webkit-scrollbar { display: none; }
 }

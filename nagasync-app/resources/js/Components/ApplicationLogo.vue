@@ -1,6 +1,6 @@
 <script setup>
 defineProps({
-    alt: { type: String, default: 'myNaga' },
+    alt: { type: String, default: 'NagaSync' },
 });
 </script>
 

@@ -4,7 +4,7 @@ return [
     // Convenience fee per online transaction, in centavos (your deck says PHP 10-20)
     'convenience_fee' => 1500,
     'privacy_notice_version' => '2026-10-draft',
-
+    'directory' => ['max_listings_per_user' => 5],
     // DEMO amounts in centavos. Replace with the LGU's official fee schedule.
     'payment_types' => [
         'barangay_clearance_fee' => ['label' => 'Barangay Clearance Fee', 'amount' => 5000],
@@ -23,17 +23,13 @@ return [
 
     'market_name' => env('MARKET_NAME', 'Public Market'),
 
-    'analytics' => [
-        'url' => env('ANALYTICS_URL', 'http://127.0.0.1:8001'),
-        'key' => env('ANALYTICS_KEY'),
-    ],
+'analytics' => [
+    'url' => env('ANALYTICS_URL', 'http://127.0.0.1:8001'),
+    'key' => env('ANALYTICS_KEY'),
+],
 
-    'retention' => [
-        'emergency_location_days' => 90,   // strip coordinates/note from closed alerts after this long
-        'audit_log_days'          => 730,  // delete audit entries older than this
-    ],
-
-    // Demo accounts: always seeded locally; in production only when explicitly enabled.
-    'seed_demo_users' => env('SEED_DEMO_USERS', false),
-    'demo_password'   => env('DEMO_PASSWORD', 'password'),
+'retention' => [
+    'emergency_location_days' => 90,   // strip coordinates/note from closed alerts after this long
+    'audit_log_days'          => 730,  // delete audit entries older than this
+],
 ];

@@ -29,10 +29,17 @@ class HandleInertiaRequests extends Middleware
      */
     public function share(Request $request): array
     {
+        $user = $request->user();
+
         return [
             ...parent::share($request),
             'auth' => [
-                'user' => $request->user(),
+                'user' => $user,
+                // false only for a citizen whom staff have not verified yet.
+                // The front end uses it to trim the menu; the server enforces it via 'resident.verified'.
+                'resident_verified' => $user === null
+                    ? false
+                    : ($user->role !== 'citizen' || $user->resident_verified_at !== null),
             ],
         ];
     }

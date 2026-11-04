@@ -1,76 +1,109 @@
 <script setup>
-import ApplicationLogo from '@/Components/ApplicationLogo.vue';
-import BottomNav from '@/Components/BottomNav.vue';
 import Dropdown from '@/Components/Dropdown.vue';
 import DropdownLink from '@/Components/DropdownLink.vue';
+import GlobalSearch from '@/Components/GlobalSearch.vue';
+import GovBanner from '@/Components/GovBanner.vue';
+import QuickActionFab from '@/Components/QuickActionFab.vue';
 import SidebarNav from '@/Components/SidebarNav.vue';
-import { useNavigation } from '@/Composables/useNavigation';
-import { Link, usePage } from '@inertiajs/vue3';
-import { computed } from 'vue';
+import { usePage } from '@inertiajs/vue3';
+import { ArrowLeft } from 'lucide-vue-next';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
 
-const page = usePage();
-const user = computed(() => page.props.auth.user);
-const { groups } = useNavigation();
+// grid = true lets a page place its own widgets in the 12-column grid (the Dashboard does).
+// Every other page is wrapped in one full-width cell, so existing pages keep working unchanged.
+defineProps({ grid: { type: Boolean, default: false } });
 
-const initials = computed(() =>
-    (user.value.name || '')
-        .split(' ')
-        .filter(Boolean)
-        .slice(0, 2)
-        .map((p) => p[0].toUpperCase())
-        .join(''),
-);
+const ROLE_LABELS = {
+    citizen: 'Citizen',
+    barangay_staff: 'Barangay Staff',
+    city_staff: 'City Hall Staff',
+    treasury: 'Treasury Office',
+    mdrrmo: 'MDRRMO Responder',
+    admin: 'Administrator',
+};
+
+const user = computed(() => usePage().props.auth.user);
+const initials = computed(() => user.value.name.split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase());
+const firstName = computed(() => user.value.name.split(' ')[0]);
+const roleLabel = computed(() => ROLE_LABELS[user.value.role] ?? 'Account');
+
+// Bikol greeting that follows the time of day
+const greeting = computed(() => {
+    const h = new Date().getHours();
+    return h < 12 ? 'Marhay na aga' : h < 18 ? 'Marhay na hapon' : 'Marhay na banggi';
+});
+
+// Home pages get the tall greeting hero; every other page gets a compact banner with a back arrow
+const isHome = computed(() => route().current('dashboard') || route().current('guide.index'));
+const back = () => window.history.back();
+
+// Render only one header (and so only one search box) at a time
+const query = '(max-width: 767px)';
+const isMobile = ref(typeof window !== 'undefined' && window.matchMedia(query).matches);
+let mql;
+const sync = (e) => (isMobile.value = e.matches);
+onMounted(() => { mql = window.matchMedia(query); isMobile.value = mql.matches; mql.addEventListener('change', sync); });
+onUnmounted(() => mql?.removeEventListener('change', sync));
 </script>
 
 <template>
-    <div class="relative min-h-screen bg-surface">
-        <!-- Desktop: sidebar. Mobile: bottom tab bar (below). -->
-        <SidebarNav :groups="groups" :user="user" />
+    <div class="min-h-screen">
+        <a href="#main" class="sr-only z-[60] rounded-full bg-white px-4 py-2 focus:not-sr-only focus:fixed focus:left-4 focus:top-4">Skip to content</a>
 
-        <!-- Soft page-wide gradient: every page that uses this layout inherits it. -->
-        <div class="pointer-events-none absolute inset-x-0 top-0 z-0 h-96 bg-gradient-to-b from-brand-200/60 via-brand-100/30 to-transparent"></div>
-        <div class="pointer-events-none absolute inset-x-0 top-0 z-0 h-96 bg-gradient-to-br from-transparent via-transparent to-accent-400/10"></div>
+        <SidebarNav />
 
-        <div class="relative z-10 lg:pl-64">
-            <header class="sticky top-0 z-20 border-b border-brand-100/70 bg-white/90 pt-[env(safe-area-inset-top)] backdrop-blur">
-                <div class="mx-auto flex max-w-7xl items-center gap-3 px-4 py-3 sm:px-6 lg:px-8">
-                    <Link :href="route('dashboard')" class="shrink-0 lg:hidden" aria-label="Home">
-                        <ApplicationLogo class="h-8 w-8 fill-current text-brand-700" />
-                    </Link>
+        <GovBanner class="md:ml-20" />
 
-                    <div class="min-w-0 flex-1">
-                        <slot name="header">
-                            <h2 class="text-xl font-semibold text-gray-800">NagaSync</h2>
-                        </slot>
-                    </div>
-
-                    <Dropdown align="right" width="48">
-                        <template #trigger>
-                            <button
-                                type="button"
-                                class="flex items-center gap-2 rounded-full p-1 pr-1 transition-colors hover:bg-brand-50 sm:pr-3"
-                                aria-label="Account menu"
-                            >
-                                <span class="flex h-9 w-9 items-center justify-center rounded-full bg-brand-600 text-sm font-semibold text-white">
-                                    {{ initials }}
-                                </span>
-                                <span class="hidden max-w-[10rem] truncate text-sm font-medium text-gray-700 sm:block">{{ user.name }}</span>
-                            </button>
-                        </template>
-                        <template #content>
-                            <DropdownLink :href="route('profile.edit')">Profile</DropdownLink>
-                            <DropdownLink :href="route('logout')" method="post" as="button">Log out</DropdownLink>
-                        </template>
-                    </Dropdown>
-                </div>
-            </header>
-
-            <!-- Layout remounts on every Inertia visit, so this gives each page a short fade-in. -->
-            <main class="pb-28 motion-safe:animate-fade-in lg:pb-10">
-                <slot />
-            </main>
+        <!-- Mobile: gradient banner with greeting (home) or back arrow + title, and the search bar -->
+        <div v-if="isMobile" class="rounded-b-3xl bg-gradient-to-br from-ns-navy to-ns-violet px-4 pb-5 pt-4 text-white shadow-card">
+            <div v-if="isHome" class="pb-5 pt-10">
+                <p class="text-[11px] font-semibold uppercase tracking-widest text-white/60">NagaSync · {{ roleLabel }}</p>
+                <h1 class="mt-1 text-3xl font-extrabold leading-tight">{{ greeting }},<br />{{ firstName }}</h1>
+            </div>
+            <div v-else class="flex items-center gap-3 pb-4 pt-2">
+                <button type="button" aria-label="Go back" @click="back"
+                        class="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 transition active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white">
+                    <ArrowLeft class="h-5 w-5" aria-hidden="true" />
+                </button>
+                <h1 class="min-w-0 flex-1 truncate text-2xl font-bold"><slot name="header" /></h1>
+            </div>
+            <GlobalSearch placeholder="What would you like to do today?" />
         </div>
 
-        <BottomNav :groups="groups" />
+        <!-- Desktop / tablet header -->
+        <header v-else class="sticky top-0 z-30 border-b border-ns-mist bg-white/90 px-4 py-3 backdrop-blur sm:px-6 md:ml-20">
+            <div class="flex flex-wrap items-center gap-3">
+                <div class="min-w-0 flex-1">
+                    <p class="text-[11px] font-semibold uppercase tracking-widest text-slate-500">NagaSync · {{ roleLabel }}</p>
+                    <div class="text-xl font-bold leading-tight"><slot name="header" /></div>
+                </div>
+
+                <GlobalSearch class="w-72" />
+
+                <Dropdown align="right" width="48">
+                    <template #trigger>
+                        <button type="button" aria-label="Account menu"
+                                class="flex h-11 w-11 items-center justify-center rounded-xl bg-ns-navy text-sm font-bold text-white shadow-card transition hover:scale-105 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ns-violet focus-visible:ring-offset-2 motion-reduce:transition-none">
+                            {{ initials }}
+                        </button>
+                    </template>
+                    <template #content>
+                        <div class="border-b border-gray-100 px-4 py-2 text-xs text-gray-500">
+                            <p class="font-semibold text-gray-700">{{ roleLabel }}</p>
+                            {{ user.email }}
+                        </div>
+                        <DropdownLink :href="route('profile.edit')">Profile</DropdownLink>
+                        <DropdownLink :href="route('logout')" method="post" as="button">Log Out</DropdownLink>
+                    </template>
+                </Dropdown>
+            </div>
+        </header>
+
+        <main id="main" class="ml-0 grid grid-cols-12 gap-6 p-4 pb-28 sm:p-6 sm:pb-28 md:ml-20 md:pb-6">
+            <div v-if="!grid" class="col-span-12"><slot /></div>
+            <slot v-else />
+        </main>
+
+        <QuickActionFab />
     </div>
 </template>

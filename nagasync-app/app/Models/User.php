@@ -86,4 +86,9 @@ public function verifier()
 {
     return $this->belongsTo(User::class, 'resident_verified_by');
 }
+
+public function businesses()
+{
+    return $this->hasMany(Business::class, 'owner_id');
+}
 }
