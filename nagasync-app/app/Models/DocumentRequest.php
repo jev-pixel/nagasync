@@ -20,6 +20,7 @@ class DocumentRequest extends Model
         'Barangay Clearance',
         'Certificate of Residency',
         'Certificate of Indigency',
+        'First-Time Jobseeker Certification',
         'Business Clearance',
     ];
 
@@ -28,7 +29,27 @@ class DocumentRequest extends Model
         'Business Permit (New)',
         'Business Permit (Renewal)',
         'Community Tax Certificate',
+        'Certificate of Good Moral Character',
+        "Mayor's Clearance",
+        'City Certificate of Indigency',
+        'Medical Assistance Referral',
     ];
+
+    // City Hall office that handles each city type (users.office for city_staff works the same way)
+    public const OFFICE_FOR = [
+        'Business Permit (New)'               => 'bplo',
+        'Business Permit (Renewal)'           => 'bplo',
+        'Community Tax Certificate'           => 'treasurer',
+        'Certificate of Good Moral Character' => 'mayor',
+        "Mayor's Clearance"                   => 'mayor',
+        'City Certificate of Indigency'       => 'cswdo',
+        'Medical Assistance Referral'         => 'lingkod',
+    ];
+
+    public const OFFICES = ['bplo', 'treasurer', 'mayor', 'cswdo', 'lingkod'];
+
+    // Can be obtained once per resident (RA 11261)
+    public const ONCE_ONLY = ['First-Time Jobseeker Certification'];
 
     // Everything a citizen can request (kept for code that validates against TYPES)
     public const TYPES = [
@@ -60,11 +81,14 @@ class DocumentRequest extends Model
         // fee assessment and counter release
         'fee_total', 'fee_breakdown', 'fee_computed_at',
         'amount_paid', 'official_receipt_no', 'released_at', 'released_by',
+        // office routing, purpose and the details printed on the certificate
+        'office', 'purpose_key', 'personal_info', 'signatory_name', 'payment_id',
     ];
 
     protected $casts = [
         'issued_at'       => 'datetime',
         'fee_breakdown'   => 'array',
+        'personal_info'   => 'array',
         'fee_computed_at' => 'datetime',
         'released_at'     => 'datetime',
         'fee_total'       => 'decimal:2',
@@ -80,7 +104,8 @@ class DocumentRequest extends Model
     {
         // Level always follows the document type
         static::creating(function (self $doc) {
-            $doc->level = self::levelFor($doc->document_type);
+            $doc->level  = self::levelFor($doc->document_type);
+            $doc->office = self::OFFICE_FOR[$doc->document_type] ?? null;
         });
 
         /**
@@ -101,9 +126,9 @@ class DocumentRequest extends Model
 
                 // City Hall documents are approved with the fee already assessed, so the
                 // citizen and the clerk at the counter see the same amount.
-                if ($doc->isCityLevel() && ! $doc->feeAssessed()) {
+                if (! $doc->feeAssessed()) {
                     throw ValidationException::withMessages([
-                        'status' => 'Assess the fee before approving a City Hall document.',
+                        'status' => 'The fee must be assessed before this document can be approved.',
                     ]);
                 }
             }
@@ -122,6 +147,7 @@ class DocumentRequest extends Model
     public function processor() { return $this->belongsTo(User::class, 'processed_by'); }
     public function releaser() { return $this->belongsTo(User::class, 'released_by'); }
     public function attachments() { return $this->hasMany(RequestAttachment::class); }
+    public function payment() { return $this->belongsTo(MunicipalPayment::class, 'payment_id'); }
 
     // ---- queue scopes (keep barangay and City Hall staff queues separate) ----
 
@@ -156,6 +182,12 @@ class DocumentRequest extends Model
         return $this->fee_total !== null;
     }
 
+    /** A fee above zero means it must be collected (counter) before the document is released. */
+    public function requiresPayment(): bool
+    {
+        return (float) $this->fee_total > 0;
+    }
+
     /**
      * Documents a resident can use as a prerequisite for another request:
      * theirs, of the given type, approved or already released (not revoked),
@@ -169,7 +201,7 @@ class DocumentRequest extends Model
         $query = static::query()
             ->where('user_id', $userId)
             ->where('document_type', $type)
-            ->whereIn('status', ['approved', 'released']);
+            ->where('status', 'released');
 
         if ($maxAgeDays) {
             $cutoff = now()->subDays($maxAgeDays);
@@ -185,7 +217,7 @@ class DocumentRequest extends Model
     /** Is THIS document currently usable as a prerequisite? */
     public function isUsableAsPrerequisite(?int $maxAgeDays): bool
     {
-        if (! in_array($this->status, ['approved', 'released'], true)) {
+        if ($this->status !== 'released') {
             return false;
         }
         if (! $maxAgeDays) {
@@ -211,6 +243,7 @@ class DocumentRequest extends Model
 
         return DocumentRequirement::active()
             ->required()
+            ->forPurpose($this->purpose_key)
             ->where('document_type', $this->document_type)
             ->whereNotIn('id', $satisfiedIds)
             ->get();

@@ -54,6 +54,9 @@ const badge = {
     rejected: 'bg-red-100 text-red-800',
 };
 
+const peso = (n) => new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(Number(n ?? 0));
+const officeName = { bplo: 'BPLO', treasurer: 'Treasurer', mayor: "Mayor's Office", cswdo: 'CSWDO', lingkod: 'Lingkod Barangay' };
+const infoRows = (r) => Object.entries(r.personal_info ?? {}).map(([k, v]) => [k.replace(/_/g, ' '), v]);
 const fileUrl = (a) => route('attachments.show', a.id);
 const isImage = (a) => a.mime_type?.startsWith('image/');
 const isPdf = (a) => a.mime_type === 'application/pdf';
@@ -81,14 +84,19 @@ const statusText = (item) => {
 
             <header>
                 <p class="text-xs font-bold uppercase tracking-wide text-gray-400">
-                    {{ request.level === 'city' ? 'City Hall request' : 'Barangay request' }}
+                    {{ request.level === 'city' ? 'City Hall request' : 'Barangay request' }}<template v-if="request.office"> · {{ officeName[request.office] ?? request.office }}</template>
                 </p>
                 <h1 class="text-lg font-semibold text-gray-900">{{ request.document_type }}</h1>
                 <p class="text-sm text-gray-500">
                     {{ request.tracking_number }} · {{ request.citizen }} · {{ request.barangay }}
                 </p>
                 <p v-if="request.purpose" class="text-sm text-gray-600">Purpose: {{ request.purpose }}</p>
-                <p class="mt-1 text-xs uppercase tracking-wide text-gray-400">Status: {{ request.status.replace('_', ' ') }}</p>
+                <dl v-if="infoRows(request).length" class="mt-3 grid gap-x-6 gap-y-1 rounded-lg bg-gray-50 p-3 text-sm sm:grid-cols-2">
+                    <div v-for="[k, v] in infoRows(request)" :key="k">
+                        <dt class="text-xs capitalize text-gray-500">{{ k }}</dt><dd class="font-medium text-gray-900">{{ v }}</dd>
+                    </div>
+                </dl>
+                <p class="mt-2 text-xs uppercase tracking-wide text-gray-400">Status: {{ request.status.replace('_', ' ') }}</p>
             </header>
 
             <div
@@ -96,11 +104,11 @@ const statusText = (item) => {
                 :class="can_approve ? 'border-green-200 bg-green-50 text-green-800' : 'border-amber-200 bg-amber-50 text-amber-800'"
             >
                 <template v-if="can_approve">
-                    All required items are verified<template v-if="request.level === 'city'"> and the fee is assessed</template>.
+                    All required items are verified<template v-if="request.fee_total != null"> and the fee is set ({{ peso(request.fee_total) }})</template>.
                     This request can now be approved.
                 </template>
                 <template v-else-if="missing.length">Still to verify: {{ missing.join(', ') }}</template>
-                <template v-else-if="needs_fee">Requirements are verified. Assess the fee below before approving.</template>
+                <template v-else-if="needs_fee">Requirements are verified. Enter the declared amount in the fee box below before approving.</template>
                 <template v-else>This request is {{ request.status.replace('_', ' ') }} and cannot be approved right now.</template>
             </div>
 
@@ -108,7 +116,7 @@ const statusText = (item) => {
                 {{ page.props.errors.status }}
             </p>
 
-            <FeeAssessmentCard v-if="request.level === 'city'" :doc="request" />
+            <FeeAssessmentCard :doc="request" />
 
             <ul class="space-y-3">
                 <li v-for="item in items" :key="item.requirement_id" class="rounded-lg border border-gray-200 bg-white p-3">

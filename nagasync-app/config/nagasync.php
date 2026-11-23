@@ -13,6 +13,15 @@ return [
         'community_tax'          => ['label' => 'Community Tax',          'amount' => 5500],
     ],
 
+    'clearance_purposes' => [
+    'school'             => ['label' => 'School enrollment',  'fee' => 0,   'student' => true],
+    'scholarship'        => ['label' => 'Scholarship',        'fee' => 0,   'student' => true],
+    'business'           => ['label' => 'Business',           'fee' => 100, 'student' => false],
+    'employment'         => ['label' => 'Employment',         'fee' => 100, 'student' => false],
+    'medical_assistance' => ['label' => 'Medical assistance', 'fee' => 100, 'student' => false],
+    'other'              => ['label' => 'Other',              'fee' => 100, 'student' => false],
+], // fee in pesos (document_requests uses pesos; MunicipalPayment uses centavos)
+
     'payments' => [
         'gateway' => env('PAYMENT_GATEWAY', 'sandbox'),
     ],

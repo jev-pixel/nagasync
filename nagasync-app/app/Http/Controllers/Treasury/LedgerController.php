@@ -28,7 +28,7 @@ class LedgerController extends Controller
             ->select('payment_type', DB::raw('count(*) as count'), DB::raw('sum(amount) as amount'))
             ->groupBy('payment_type')->get()
             ->map(fn ($r) => [
-                'label'  => $types[$r->payment_type]['label'] ?? $r->payment_type,
+                'label'  => $types[$r->payment_type]['label'] ?? ($r->payment_type === 'document_fee' ? 'Document fees' : $r->payment_type),
                 'count'  => (int) $r->count,
                 'amount' => (int) $r->amount,
             ]);
@@ -36,7 +36,7 @@ class LedgerController extends Controller
         $payments = MunicipalPayment::with(['user:id,name', 'barangay:id,name'])->latest()->paginate(20)
             ->through(fn ($p) => [
                 'id' => $p->id, 'reference_no' => $p->reference_no,
-                'label' => $types[$p->payment_type]['label'] ?? $p->payment_type,
+                'label' => $types[$p->payment_type]['label'] ?? ($p->meta['label'] ?? $p->payment_type),
                 'citizen' => $p->user?->name, 'barangay' => $p->barangay?->name,
                 'total' => $p->total, 'status' => $p->status,
                 'when' => ($p->paid_at ?? $p->created_at)->toDayDateTimeString(),

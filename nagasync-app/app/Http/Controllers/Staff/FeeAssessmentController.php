@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Staff;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\ReviewAccess;
 use App\Models\DocumentRequest;
 use App\Services\DocumentFeeCalculator;
 use Illuminate\Http\Request;
@@ -21,6 +22,7 @@ class FeeAssessmentController extends Controller
     public function store(Request $request, DocumentRequest $documentRequest, DocumentFeeCalculator $fees)
     {
         abort_unless(in_array($request->user()->role, self::ROLES, true), 403);
+        abort_unless(ReviewAccess::canReview($request->user(), $documentRequest), 403); // office-scoped
         abort_unless($documentRequest->isCityLevel(), 404);
         abort_unless(
             in_array($documentRequest->status, self::ASSESSABLE, true),
@@ -30,13 +32,18 @@ class FeeAssessmentController extends Controller
 
         $data = $request->validate([
             // Capital (new permit), gross sales (renewal) or annual income (community tax)
-            'declared_amount'   => ['required', 'numeric', 'min:0', 'max:1000000000'],
+            'declared_amount'   => ['nullable', 'numeric', 'min:0', 'max:1000000000'],
+            // Business permits: the barangay clearance fee is collected by the Treasurer with the permit
+            'barangay_clearance_fee' => ['nullable', 'numeric', 'min:0', 'max:1000000'],
             // Optional staff override, always with a reason (the Auditable trait logs the change)
             'adjustment'        => ['nullable', 'numeric', 'between:-1000000,1000000'],
             'adjustment_reason' => ['nullable', 'required_with:adjustment', 'string', 'max:255'],
         ]);
 
-        $fee = $fees->compute($documentRequest, ['declared_amount' => $data['declared_amount']]);
+        $fee = $fees->compute($documentRequest, [
+            'declared_amount'        => $data['declared_amount'] ?? 0,
+            'barangay_clearance_fee' => $data['barangay_clearance_fee'] ?? 0,
+        ]);
 
         if (! empty($data['adjustment'])) {
             $fee['lines'][] = [

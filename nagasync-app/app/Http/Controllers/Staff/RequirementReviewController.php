@@ -35,18 +35,19 @@ class RequirementReviewController extends Controller
 
         $requirements = DocumentRequirement::active()
             ->where('document_type', $documentRequest->document_type)
+            ->forPurpose($documentRequest->purpose_key)
             ->orderBy('sort_order')
             ->get();
 
         $byRequirement = $documentRequest->attachments->keyBy('document_requirement_id');
 
         $isCity     = $documentRequest->isCityLevel();
-        $feeMissing = $isCity && ! $documentRequest->feeAssessed();
+        $feeMissing = ! $documentRequest->feeAssessed(); // every type is priced before approval now
 
         return Inertia::render('Staff/Documents/Review', [
             'request' => $documentRequest->only([
                     'id', 'document_type', 'level', 'purpose', 'tracking_number', 'status', 'remarks', 'created_at',
-                    'fee_total', 'fee_breakdown',
+                    'fee_total', 'fee_breakdown', 'office', 'purpose_key', 'personal_info',
                 ]) + [
                     'citizen'  => $documentRequest->user?->name,
                     'barangay' => $documentRequest->barangay?->name,

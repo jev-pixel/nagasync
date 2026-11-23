@@ -7,14 +7,12 @@ use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
 
 /**
- * Who may review which document request.
+ * Who may review, assess and release which document request.
  *   admin           : everything
- *   city_staff      : City Hall requests, from any barangay
- *   barangay_staff  : barangay requests of their own barangay only
+ *   city_staff      : City Hall requests. users.office = null means every office; otherwise only
+ *                     requests routed to that office (bplo, treasurer, mayor, cswdo, lingkod)
+ *   barangay_staff  : barangay-level requests of their own barangay only
  * Anyone else (citizens, treasury, mdrrmo, ...) has no review access.
- *
- * NOTE: compare with your existing ReviewAccess.php before replacing it. If yours has other
- * methods that are used elsewhere, keep them and only adopt canReview() / scopeQueue().
  */
 class ReviewAccess
 {
@@ -24,10 +22,10 @@ class ReviewAccess
     {
         return match ($user->role) {
             'admin'          => true,
-            'city_staff'     => $doc->isCityLevel(),
+            'city_staff'     => $doc->isCityLevel() && ($user->office === null || $user->office === $doc->office),
             'barangay_staff' => ! $doc->isCityLevel()
                 && $user->barangay_id !== null
-                && $doc->barangay_id === $user->barangay_id,
+                && (int) $doc->barangay_id === (int) $user->barangay_id,
             default          => false,
         };
     }
@@ -37,7 +35,9 @@ class ReviewAccess
     {
         return match ($user->role) {
             'admin'          => $query,
-            'city_staff'     => $query->where('level', DocumentRequest::LEVEL_CITY),
+            'city_staff'     => $query
+                ->where('level', DocumentRequest::LEVEL_CITY)
+                ->when($user->office, fn ($q) => $q->where('office', $user->office)),
             'barangay_staff' => $query
                 ->where('level', DocumentRequest::LEVEL_BARANGAY)
                 ->where('barangay_id', $user->barangay_id ?? 0),

@@ -3,7 +3,9 @@
 use App\Http\Controllers\Admin\CommandCenterController;
 use App\Http\Controllers\Admin\PollManagementController;
 use App\Http\Controllers\AttachmentController;
+use App\Http\Controllers\Citizen\CertificateController;
 use App\Http\Controllers\Citizen\DocumentController;
+use App\Http\Controllers\Citizen\DocumentPaymentController;
 use App\Http\Controllers\Citizen\EmergencyController;
 use App\Http\Controllers\Citizen\MarketWatchController;
 use App\Http\Controllers\Citizen\PaymentController;
@@ -127,6 +129,17 @@ Route::middleware('auth')->group(function () {
         // Link one of the user's approved documents (e.g. a Barangay Clearance) to a requirement
         Route::post('/documents/{documentRequest}/requirements/{requirement}/link', [DocumentController::class, 'link'])
             ->middleware('throttle:20,1')->name('documents.link');
+
+        // Pay an approved document's fee online (releases it once paid), and download the PDF certificate
+        Route::post('/documents/{documentRequest}/pay', [DocumentPaymentController::class, 'store'])
+            ->middleware('throttle:10,1')->name('documents.pay');
+        Route::get('/documents/{documentRequest}/pdf', [CertificateController::class, 'show'])->name('documents.pdf');
+
+        // Sandbox checkout: residents reach it only through documents.pay
+        if (! app()->isProduction()) {
+            Route::get('/payments/sandbox/{payment:reference_no}', [CheckoutController::class, 'show'])->name('payments.sandbox');
+            Route::post('/payments/sandbox/{payment:reference_no}', [CheckoutController::class, 'complete'])->name('payments.sandbox.complete');
+        }
     });
 
     // ---- ADMIN ONLY: My Businesses (not in the citizen or barangay staff menus) -------------
@@ -148,11 +161,6 @@ Route::middleware('auth')->group(function () {
         Route::get('/emergency', [EmergencyController::class, 'index'])->name('emergency.index');
         Route::post('/emergency', [EmergencyController::class, 'store'])
             ->middleware('throttle:3,1')->name('emergency.store');
-
-        if (! app()->isProduction()) {
-            Route::get('/payments/sandbox/{payment:reference_no}', [CheckoutController::class, 'show'])->name('payments.sandbox');
-            Route::post('/payments/sandbox/{payment:reference_no}', [CheckoutController::class, 'complete'])->name('payments.sandbox.complete');
-        }
     });
 });
 
@@ -178,19 +186,25 @@ Route::middleware(['auth', 'role:barangay_staff,city_staff,admin'])->prefix('sta
 
 // Not part of the citizen or barangay-staff menus: admin (and city staff, as before)
 Route::middleware(['auth', 'role:city_staff,admin'])->prefix('staff')->name('staff.')->group(function () {
-    // City Hall counter: payment collected and document handed over (approved -> released)
-    Route::get('/', [CounterController::class, 'index'])->name('index');
-    Route::post('/{documentRequest}/release', [CounterController::class, 'release'])->name('release');
-
     Route::get('/market-prices', [MarketPriceController::class, 'index'])->name('market.index');
     Route::post('/market-prices', [MarketPriceController::class, 'store'])->name('market.store');
 
-    // Resident verification: this is what unlocks a citizen's account
-    Route::get('/residents', [ResidentController::class, 'index'])->name('residents.index');
-    Route::patch('/residents/{resident}', [ResidentController::class, 'update'])->name('residents.update');
-
     Route::get('/businesses', [BusinessReviewController::class, 'index'])->name('businesses.index');
     Route::patch('/businesses/{business}', [BusinessReviewController::class, 'update'])->name('businesses.update');
+});
+
+// Counter: payment collected and document handed over (approved -> released), for both levels.
+// ReviewAccess limits each role to what it handles: a barangay's documents, or a City Hall office.
+Route::middleware(['auth', 'role:barangay_staff,city_staff,admin'])->prefix('staff')->name('staff.')->group(function () {
+    Route::get('/', [CounterController::class, 'index'])->name('index');
+    Route::post('/{documentRequest}/release', [CounterController::class, 'release'])->name('release');
+});
+
+// Resident verification unlocks a citizen's account. Barangay staff verify residents of their own
+// barangay (the controller scopes it); admins can verify anyone.
+Route::middleware(['auth', 'role:barangay_staff,admin'])->prefix('staff')->name('staff.')->group(function () {
+    Route::get('/residents', [ResidentController::class, 'index'])->name('residents.index');
+    Route::patch('/residents/{resident}', [ResidentController::class, 'update'])->name('residents.update');
 });
 
 Route::middleware(['auth', 'role:admin'])->prefix('admin')->name('admin.')->group(function () {

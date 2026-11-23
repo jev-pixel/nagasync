@@ -1,7 +1,11 @@
 <script setup>
+import CameraCapture from '@/Components/CameraCapture.vue';
+import PurposeStep from '@/Components/PurposeStep.vue';
+import RequestCalendar from '@/Components/RequestCalendar.vue';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
+import { dayKey, fromKey, marksFrom } from '@/utils/dateKey';
 import { Head, router, useForm } from '@inertiajs/vue3';
-import { BadgeCheck, Building2, Check, ClipboardCheck, FileText, Hourglass, Landmark, Link2, Paperclip, QrCode, Send, Upload, XCircle } from 'lucide-vue-next';
+import { BadgeCheck, Building2, Check, ClipboardCheck, CreditCard, Download, FileText, Hourglass, Landmark, Link2, Paperclip, QrCode, Send, Upload, XCircle } from 'lucide-vue-next';
 import { computed, nextTick, ref, watch } from 'vue';
 
 const props = defineProps({
@@ -16,12 +20,18 @@ const props = defineProps({
     inProgress: { type: Object, default: () => ({}) },
     // Types where the business itself is the purpose, so "What is it for?" is skipped
     purposeless: { type: Array, default: () => [] },
+    // { [type]: [{ key, label, fee, student }] }  purposes the citizen picks from (empty = free-text purpose)
+    purposes: { type: Object, default: () => ({}) },
+    // { [type]: [{ key, label, type, required, options }] }  details printed on the certificate
+    personalFields: { type: Object, default: () => ({}) },
+    // Online payment surcharge in pesos
+    convenienceFee: { type: Number, default: 0 },
 });
 
 const MAX_BYTES = 5 * 1024 * 1024; // keep in sync with the 5 MB server rule
 
 const tab = ref('barangay'); // 'barangay' | 'city'
-const form = useForm({ document_type: '', purpose: '', files: {}, links: {} });
+const form = useForm({ document_type: '', purpose: '', purpose_key: null, personal_info: {}, files: {}, links: {} });
 const justSubmitted = ref(false);
 const submittedFor = ref(null); // city type to come back to after a prerequisite was requested
 const resumeFor = ref(null); // city type the resident started from
@@ -29,6 +39,19 @@ const uploadKey = ref(0); // bump to clear the <input type="file"> elements
 const fileErrors = ref({}); // client-side errors keyed by requirement id
 
 const visibleTypes = computed(() => props.groups?.[tab.value] ?? []);
+
+// ---- Request history calendar ----------------------------------------------
+const selectedDate = ref(null); // 'YYYY-MM-DD' (local time) or null = show every request
+// The day a request was submitted (falls back to last update if created_at is not sent)
+const requestDate = (d) => d.created_at ?? d.updated_at ?? null;
+// { 'YYYY-MM-DD': [status, ...] }, used by the calendar for its colored dots
+const dateMarks = computed(() => marksFrom(props.documents ?? [], requestDate));
+const shownDocuments = computed(() => (selectedDate.value
+    ? (props.documents ?? []).filter((d) => dayKey(requestDate(d)) === selectedDate.value)
+    : (props.documents ?? [])));
+const selectedLabel = computed(() => (selectedDate.value
+    ? fromKey(selectedDate.value).toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' })
+    : ''));
 
 function setTab(t) {
     tab.value = t;
@@ -45,14 +68,22 @@ const submit = () => form.post(route('documents.store'), {
         resumeFor.value = null;
         fileErrors.value = {};
         uploadKey.value++;
+        selectedDate.value = null; // make sure the new request is visible
         justSubmitted.value = true;
         setTimeout(() => (justSubmitted.value = false), 10000);
     },
 });
 
 // Requirements for whichever document type is selected
-const reqs = computed(() => props.requirements?.[form.document_type] ?? []);
+// Only the requirements that apply to the chosen purpose (purpose_keys null = every purpose)
+const reqs = computed(() => (props.requirements?.[form.document_type] ?? [])
+    .filter((r) => !r.purpose_keys?.length || (form.purpose_key && r.purpose_keys.includes(form.purpose_key))));
+const purposeList = computed(() => props.purposes?.[form.document_type] ?? []);
+const fieldList = computed(() => props.personalFields?.[form.document_type] ?? []);
+const hasPurposeList = computed(() => purposeList.value.length > 0);
+const missingInfo = computed(() => fieldList.value.filter((f) => f.required && !String(form.personal_info?.[f.key] ?? '').trim()));
 const isIssued = (r) => r.kind === 'issued_document';
+const isCamera = (r) => r.kind === 'camera';
 const satisfied = (r) => !!(form.files[r.id] || form.links[r.id]);
 const missingRequired = computed(() => reqs.value.filter((r) => r.is_required && !satisfied(r)));
 
@@ -62,18 +93,31 @@ const isPurposeless = computed(() => props.purposeless.includes(form.document_ty
 // so do not let one be submitted until City Hall has set them up.
 const cityNotConfigured = computed(() => isCityType(form.document_type) && !reqs.value.length);
 
+const purposeOk = computed(() => hasPurposeList.value ? !!form.purpose_key : (isPurposeless.value || !!form.purpose.trim()));
 const canSubmit = computed(() =>
     form.document_type
-    && (isPurposeless.value || form.purpose.trim())
+    && purposeOk.value
+    && !missingInfo.value.length
     && !missingRequired.value.length
     && !cityNotConfigured.value
 );
 
 // Switching type invalidates anything already attached
 watch(() => form.document_type, () => {
+    form.purpose = '';
+    form.purpose_key = null;
+    form.personal_info = {};
     form.files = {};
     form.links = {};
     fileErrors.value = {};
+    uploadKey.value++;
+});
+
+// Changing the purpose can remove requirements (e.g. no cedula for students): drop what no longer applies
+watch(reqs, (list) => {
+    const ids = new Set(list.map((r) => String(r.id)));
+    form.files = Object.fromEntries(Object.entries(form.files).filter(([id]) => ids.has(String(id))));
+    form.links = Object.fromEntries(Object.entries(form.links).filter(([id]) => ids.has(String(id))));
     uploadKey.value++;
 });
 
@@ -103,6 +147,19 @@ function pickFile(req, event) {
     }
     form.files = next;
     fileErrors.value = { ...fileErrors.value, [req.id]: err };
+}
+
+// Live camera photo for a requirement on the new-request form
+function setCaptured(req, file) {
+    const err = checkFile(file);
+    fileErrors.value = { ...fileErrors.value, [req.id]: err };
+    if (err) return;
+    form.files = { ...form.files, [req.id]: file };
+}
+function clearCaptured(req) {
+    const next = { ...form.files };
+    delete next[req.id];
+    form.files = next;
 }
 
 function toggleLink(req, docId) {
@@ -159,7 +216,7 @@ const purposeChips = ['Employment', 'School', 'Scholarship', 'Medical assistance
 const selected = computed(() => form.document_type);
 const step = computed(() => (
     !form.document_type ? 1
-        : !isPurposeless.value && !form.purpose.trim() ? 2
+        : !purposeOk.value || missingInfo.value.length ? 2
             : missingRequired.value.length ? 3 : 4
 ));
 
@@ -168,30 +225,34 @@ const step = computed(() => (
 const stages = [
     { key: 'pending', label: 'Received' },
     { key: 'processing', label: 'Being reviewed' },
-    { key: 'approved', label: 'Ready' },
+    { key: 'approved', label: 'Approved' },
+    { key: 'released', label: 'Issued' },
 ];
-const stagesFor = (d) => (d.level === 'city' ? [...stages, { key: 'released', label: 'Claimed' }] : stages);
+const stagesFor = () => stages; // same state machine for Barangay and City Hall
 const stageIndex = (s) => {
     if (s === 'needs_resubmission') return 1;
     if (s === 'released') return 3;
     return Math.max(0, stages.findIndex((x) => x.key === s));
 };
-const stageChecked = (d, i) => i < stageIndex(d.status)
-    || (['approved', 'released'].includes(d.status) && i === stageIndex(d.status));
+const stageChecked = (d, i) => i < stageIndex(d.status) || (d.status === 'released' && i === 3);
 const showTracker = (s) => ['pending', 'processing', 'needs_resubmission', 'approved', 'released'].includes(s);
 
 const statusInfo = {
     pending: { tone: 'bg-amber-100 text-amber-800', text: 'We received your request and documents. Staff will review them soon.' },
     processing: { tone: 'bg-sky-100 text-sky-800', text: 'Staff are checking your documents now.' },
     needs_resubmission: { tone: 'bg-orange-100 text-orange-800', text: 'Staff need you to update one or more documents. See the list below.' },
-    approved: { tone: 'bg-emerald-100 text-emerald-800', text: 'Approved! Show the QR code to claim or verify your document.' },
-    released: { tone: 'bg-emerald-100 text-emerald-800', text: 'You have claimed this document.' },
+    approved: { tone: 'bg-emerald-100 text-emerald-800', text: 'Approved! Pay the fee at the counter to get your document.' },
+    released: { tone: 'bg-emerald-100 text-emerald-800', text: 'Issued. This document is now valid and can be verified by its QR code.' },
     rejected: { tone: 'bg-red-100 text-red-800', text: 'This request was not approved. See the remarks below, then submit a new one.' },
     revoked: { tone: 'bg-gray-200 text-gray-700', text: 'This document is no longer valid.' },
 };
-const statusText = (d) => (d.status === 'approved' && d.level === 'city'
-    ? 'Approved! Go to City Hall, show your QR code, pay the assessed fee and claim your document. Your documents are already checked, so there is no need to queue for that.'
-    : statusInfo[d.status]?.text);
+const statusText = (d) => {
+    if (d.status === 'approved') {
+        const where = d.level === 'city' ? 'City Hall' : 'your barangay hall';
+        return `Approved! Go to ${where}, show your QR code, pay the fee shown below and claim your document. Your requirements are already checked.`;
+    }
+    return statusInfo[d.status]?.text;
+};
 const label = (s) => s.replace('_', ' ');
 
 const peso = (n) => new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(Number(n ?? 0));
@@ -210,20 +271,28 @@ function itemsFor(d) {
     return (props.requirements?.[d.document_type] ?? []).map((r) => ({ req: r, att: byReq[r.id] ?? null }));
 }
 
+const paying = ref(null);
+function payOnline(d) {
+    // The server answers with a redirect to the payment checkout
+    router.post(route('documents.pay', d.id), {}, { onStart: () => (paying.value = d.id), onFinish: () => (paying.value = null) });
+}
+
 const canUpload = (d) => ['pending', 'processing', 'needs_resubmission'].includes(d.status);
 const needsInput = (d, att) => canUpload(d) && (!att || att.needs_action);
 const uploadError = ref({}); // keyed by `${requestId}-${requirementId}`
 const uploading = ref(null);
 
 function uploadItem(d, req, event) {
-    const key = `${d.id}-${req.id}`;
     const file = event.target.files[0];
-    if (!file) return;
+    if (file) uploadFile(d, req, file, event.target);
+}
 
+function uploadFile(d, req, file, input = null) {
+    const key = `${d.id}-${req.id}`;
     const err = checkFile(file);
     if (err) {
         uploadError.value = { ...uploadError.value, [key]: err };
-        event.target.value = '';
+        if (input) input.value = '';
         return;
     }
 
@@ -235,7 +304,7 @@ function uploadItem(d, req, event) {
         onError: (errors) => (uploadError.value = { ...uploadError.value, [key]: errors.file ?? 'Upload failed. Please try again.' }),
         onFinish: () => {
             uploading.value = null;
-            event.target.value = '';
+            if (input) input.value = '';
         },
     });
 }
@@ -255,7 +324,12 @@ function linkItem(d, req, docId) {
 <template>
     <Head title="My Documents" />
     <AuthenticatedLayout>
-        <template #header><h2 class="text-xl font-semibold text-gray-800">My Documents</h2></template>
+        <template #header><h2 class="text-lg font-semibold text-white md:text-xl md:text-gray-800">My Documents</h2></template>
+
+        <!-- Mobile header: request history calendar (on desktop it sits above "My requests") -->
+        <template #mobile-extra>
+            <RequestCalendar v-model="selectedDate" :marks="dateMarks" />
+        </template>
 
         <div class="mx-auto max-w-4xl space-y-8 p-4 sm:p-6">
             <!-- How it works -->
@@ -265,8 +339,8 @@ function linkItem(d, req, docId) {
                     <li v-for="(s, i) in [
                         { t: 'Choose', d: 'Barangay or City Hall document.' },
                         { t: 'Attach', d: 'Upload requirements or reuse your approved barangay documents.' },
-                        { t: 'Staff check', d: 'Staff verify your uploads and assess any fee before approving.' },
-                        { t: 'Claim', d: 'Show your QR code at the counter, pay the fee and take your document. No long queue.' },
+                        { t: 'Staff check', d: 'Staff verify your uploads and confirm the fee before approving.' },
+                        { t: 'Claim', d: 'Free documents are issued on approval. Otherwise show your QR code at the counter and pay.' },
                     ]" :key="s.t" class="flex items-start gap-3">
                         <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#3D2470] text-sm font-bold text-white">{{ i + 1 }}</span>
                         <div>
@@ -348,15 +422,22 @@ function linkItem(d, req, docId) {
                     <p v-if="form.errors.document_type" class="mt-2 text-sm text-red-600">{{ form.errors.document_type }}</p>
                 </div>
 
-                <!-- Skipped for documents where the business itself is the purpose (e.g. Business Permit) -->
-                <div v-if="!isPurposeless">
-                    <h3 class="text-lg font-extrabold text-[#3D2470]">
+                <!-- Purpose list (with fees) and the details printed on the certificate -->
+                <div v-if="selected && (hasPurposeList || fieldList.length)">
+                    <h3 class="mb-3 text-lg font-extrabold text-[#3D2470]">
                         <span class="mr-2 inline-flex h-7 w-7 items-center justify-center rounded-full text-sm text-white"
                               :class="step > 2 ? 'bg-emerald-500' : step === 2 ? 'bg-[#F04A2B]' : 'bg-gray-300'">
                             <Check v-if="step > 2" class="h-4 w-4" /><template v-else>2</template>
                         </span>
-                        What is it for?
+                        {{ hasPurposeList ? 'Purpose and your details' : 'Your details' }}
                     </h3>
+                    <PurposeStep :purposes="purposeList" :fields="fieldList"
+                                 v-model:purpose-key="form.purpose_key" v-model:info="form.personal_info" :errors="form.errors" />
+                </div>
+
+                <!-- Free-text purpose: only for types with no purpose list. Skipped when the business itself is the purpose -->
+                <div v-if="selected && !hasPurposeList && !isPurposeless">
+                    <h4 class="text-sm font-bold text-[#3D2470]">What is it for?</h4>
                     <div class="mt-3 flex flex-wrap gap-2">
                         <button v-for="c in purposeChips" :key="c" type="button" @click="form.purpose = c"
                                 class="rounded-full px-4 py-1.5 text-sm font-medium ring-1 transition"
@@ -374,7 +455,7 @@ function linkItem(d, req, docId) {
                     <h3 class="text-lg font-extrabold text-[#3D2470]">
                         <span class="mr-2 inline-flex h-7 w-7 items-center justify-center rounded-full text-sm text-white"
                               :class="step > 3 ? 'bg-emerald-500' : step === 3 ? 'bg-[#F04A2B]' : 'bg-gray-300'">
-                            <Check v-if="step > 3" class="h-4 w-4" /><template v-else>{{ isPurposeless ? 2 : 3 }}</template>
+                            <Check v-if="step > 3" class="h-4 w-4" /><template v-else>3</template>
                         </span>
                         Attach your requirements
                     </h3>
@@ -436,7 +517,11 @@ function linkItem(d, req, docId) {
                             </div>
 
                             <!-- Upload (the only option for plain requirements, a fallback for issued ones) -->
-                            <label v-if="!isIssued(r) || r.allow_upload_fallback"
+                            <CameraCapture v-if="isCamera(r)" class="mt-3" :file="form.files[r.id] ?? null"
+                                           :allow-fallback="r.allow_upload_fallback"
+                                           @captured="setCaptured(r, $event)" @cleared="clearCaptured(r)" />
+
+                            <label v-else-if="!isIssued(r) || r.allow_upload_fallback"
                                    class="mt-3 flex cursor-pointer flex-wrap items-center gap-3 text-sm">
                                 <span class="inline-flex items-center gap-2 rounded-xl bg-[#F1E8F6] px-3 py-2 font-semibold text-[#3D2470] hover:bg-[#E8DAF1]">
                                     <Paperclip class="h-4 w-4" />
@@ -462,8 +547,9 @@ function linkItem(d, req, docId) {
                                 <Check class="mt-0.5 h-4 w-4 shrink-0" /> {{ item }}
                             </li>
                         </ul>
-                        <p v-if="isCityType(selected)" class="mt-2 text-xs text-amber-800/80">
-                            City Hall assesses the fee after your documents are verified. The amount appears on your approved request, and you pay it at the counter when you claim.
+                        <p class="mt-2 text-xs text-amber-800/80">
+                            <template v-if="isCityType(selected)">City Hall assesses the fee where it depends on your declared amount. The amount appears on your approved request, and you pay it at the counter when you claim.</template>
+                            <template v-else>Free documents are issued as soon as they are approved. Otherwise the fee is shown on your request and paid at the counter.</template>
                         </p>
                         <p class="mt-2 text-xs text-amber-800/80">You only need these once your request is approved.</p>
                     </div>
@@ -477,12 +563,13 @@ function linkItem(d, req, docId) {
                     </button>
                     <p v-if="!form.document_type" class="text-sm text-gray-500">Choose a document first.</p>
                     <p v-else-if="cityNotConfigured" class="text-sm text-amber-700">Requirements for this document are not set up yet.</p>
-                    <p v-else-if="!isPurposeless && !form.purpose.trim()" class="text-sm text-gray-500">Add a purpose to continue.</p>
+                    <p v-else-if="!purposeOk" class="text-sm text-gray-500">{{ hasPurposeList ? 'Choose what it is for.' : 'Add a purpose to continue.' }}</p>
+                    <p v-else-if="missingInfo.length" class="text-sm text-gray-500">Fill in: {{ missingInfo.map((f) => f.label).join(', ') }}.</p>
                     <p v-else-if="missingRequired.length" class="text-sm text-gray-500">
                         Still needed: {{ missingRequired.map((r) => r.name).join(', ') }}.
                     </p>
                     <p v-else class="text-sm text-gray-500">
-                        Ready to submit: <strong>{{ form.document_type }}</strong><template v-if="!isPurposeless"> for <strong>{{ form.purpose }}</strong></template>.
+                        Ready to submit: <strong>{{ form.document_type }}</strong><template v-if="!isPurposeless && (form.purpose || form.purpose_key)"> for <strong>{{ hasPurposeList ? purposeList.find((p) => p.key === form.purpose_key)?.label : form.purpose }}</strong></template>.
                     </p>
                 </div>
             </form>
@@ -491,6 +578,14 @@ function linkItem(d, req, docId) {
             <section>
                 <h3 class="mb-3 text-lg font-extrabold text-[#3D2470]">My requests</h3>
 
+                <!-- Desktop: the calendar lives here (on mobile it is in the header) -->
+                <RequestCalendar v-if="documents.length" v-model="selectedDate" :marks="dateMarks" variant="light" class="mb-3 hidden md:block" />
+
+                <div v-if="selectedDate" class="mb-3 flex items-center justify-between gap-2 rounded-xl bg-[#F1E8F6] px-3 py-2 text-sm text-[#3D2470]">
+                    <span>Showing requests from <strong>{{ selectedLabel }}</strong> ({{ shownDocuments.length }})</span>
+                    <button type="button" @click="selectedDate = null" class="shrink-0 font-bold underline">Show all</button>
+                </div>
+
                 <div v-if="!documents.length" class="rounded-3xl border-2 border-dashed border-[#3D2470]/20 p-10 text-center">
                     <Hourglass class="mx-auto h-8 w-8 text-[#3D2470]/50" />
                     <p class="mt-3 font-semibold text-[#3D2470]">No requests yet</p>
@@ -498,7 +593,8 @@ function linkItem(d, req, docId) {
                 </div>
 
                 <div v-else class="space-y-4">
-                    <article v-for="d in documents" :key="d.id" class="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-black/5">
+                    <p v-if="!shownDocuments.length" class="rounded-2xl bg-gray-50 p-4 text-center text-sm text-gray-500">No requests on this date.</p>
+                    <article v-for="d in shownDocuments" :key="d.id" class="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-black/5">
                         <div class="flex items-start justify-between gap-4">
                             <div class="min-w-0">
                                 <p class="text-xs font-bold uppercase tracking-wide text-[#3D2470]/60">
@@ -507,7 +603,7 @@ function linkItem(d, req, docId) {
                                 <p class="text-lg font-bold text-[#1B1340]">{{ d.document_type }}</p>
                                 <p v-if="d.purpose && !purposeless.includes(d.document_type)" class="text-sm text-gray-500">For: {{ d.purpose }}</p>
                                 <p class="mt-1 text-xs text-gray-500">
-                                    Tracking no. <span class="select-all rounded bg-gray-100 px-1.5 py-0.5 font-mono text-gray-700">{{ d.tracking_number }}</span>
+                                    Tracking no. <span class="select-all rounded bg-gray-100 px-1.5 py-0.5 font-mono text-gray-700">{{ d.tracking_number }}</span><span v-if="requestDate(d)" class="ml-1">· {{ fmtDate(requestDate(d)) }}</span>
                                 </p>
                             </div>
                             <span :class="statusInfo[d.status]?.tone" class="shrink-0 rounded-full px-3 py-1 text-xs font-bold capitalize">{{ label(d.status) }}</span>
@@ -579,7 +675,10 @@ function linkItem(d, req, docId) {
                                         </p>
                                     </template>
 
-                                    <label v-if="!isIssued(req) || req.allow_upload_fallback"
+                                    <CameraCapture v-if="isCamera(req)" :allow-fallback="req.allow_upload_fallback"
+                                                   :busy="uploading === `${d.id}-${req.id}`" @captured="uploadFile(d, req, $event)" />
+
+                                    <label v-else-if="!isIssued(req) || req.allow_upload_fallback"
                                            class="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-[#F1E8F6] px-3 py-2 text-sm font-semibold text-[#3D2470] hover:bg-[#E8DAF1]">
                                         <Upload class="h-4 w-4" />
                                         {{ uploading === `${d.id}-${req.id}` ? 'Uploading…' : att ? 'Upload a new file' : 'Upload file' }}
@@ -592,23 +691,28 @@ function linkItem(d, req, docId) {
                         </ul>
 
                         <!-- City Hall fee, assessed when staff approved the request -->
-                        <div v-if="d.status === 'approved' && d.level === 'city' && d.fee_total != null"
+                        <div v-if="d.status === 'approved' && Number(d.fee_total) > 0"
                              class="mt-4 rounded-2xl bg-white p-4 ring-1 ring-emerald-200">
-                            <p class="font-bold text-[#1B1340]">Amount due at City Hall: {{ peso(d.fee_total) }}</p>
+                            <p class="font-bold text-[#1B1340]">Amount due at the counter: {{ peso(d.fee_total) }}</p>
                             <ul v-if="d.fee_breakdown?.lines?.length" class="mt-2 space-y-1 text-sm text-gray-600">
                                 <li v-for="l in d.fee_breakdown.lines" :key="l.label" class="flex justify-between gap-3">
                                     <span>{{ l.label }}</span><span>{{ peso(l.amount) }}</span>
                                 </li>
                             </ul>
-                            <p class="mt-2 text-xs text-gray-500">Pay at the counter when you claim. The clerk will check these details against your QR code and tracking number.</p>
+                            <p class="mt-2 text-xs text-gray-500">Pay at the counter, or online below. The clerk will check these details against your QR code and tracking number.</p>
+                            <button type="button" :disabled="paying === d.id" @click="payOnline(d)"
+                                    class="mt-3 inline-flex items-center gap-2 rounded-xl bg-[#3D2470] px-4 py-2 text-sm font-bold text-white hover:bg-[#2E1B58] disabled:opacity-50">
+                                <CreditCard class="h-4 w-4" /> {{ paying === d.id ? 'Opening checkout…' : 'Pay online' }}
+                            </button>
+                            <p v-if="convenienceFee > 0" class="mt-1 text-xs text-gray-500">Online payments add a {{ peso(convenienceFee) }} convenience fee. Your document is released as soon as the payment goes through.</p>
                         </div>
 
-                        <div v-if="d.status === 'approved'" class="mt-4 flex flex-wrap items-center gap-4 rounded-2xl bg-emerald-50 p-4">
+                        <div v-if="['approved', 'released'].includes(d.status) && d.verify_url" class="mt-4 flex flex-wrap items-center gap-4 rounded-2xl bg-emerald-50 p-4">
                             <img :src="route('documents.qr', d.id)" alt="Verification QR code" loading="lazy" class="h-28 w-28 rounded-lg bg-white p-1" />
                             <div class="text-sm text-emerald-900">
                                 <p class="flex items-center gap-1.5 font-bold"><QrCode class="h-4 w-4" /> Your verification QR</p>
-                                <p class="mt-1">Show this when claiming your document, or let others scan it to confirm it is genuine.</p>
-                                <p class="mt-2 font-semibold">Bring: {{ bringFor(d.document_type).join(' · ') }}</p>
+                                <p class="mt-1">{{ d.status === 'released' ? 'Valid. Let others scan this to confirm your document is genuine.' : 'Show this at the counter. It becomes valid once the document is released.' }}</p>
+                                <p v-if="d.status === 'approved'" class="mt-2 font-semibold">Bring: {{ bringFor(d.document_type).join(' · ') }}</p>
                                 <a v-if="d.verify_url" :href="d.verify_url" target="_blank" rel="noopener"
                                    class="mt-2 inline-block font-semibold text-[#3D2470] underline">Open verification page</a>
                             </div>
@@ -616,11 +720,15 @@ function linkItem(d, req, docId) {
 
                         <!-- Claimed at the counter -->
                         <div v-if="d.status === 'released'" class="mt-4 rounded-2xl bg-emerald-50 p-4 text-sm text-emerald-900">
-                            <p class="flex items-center gap-1.5 font-bold"><BadgeCheck class="h-4 w-4" /> Claimed at City Hall</p>
+                            <p class="flex items-center gap-1.5 font-bold"><BadgeCheck class="h-4 w-4" /> Issued</p>
                             <p class="mt-1">
                                 Released on {{ fmtDate(d.released_at) }}<span v-if="d.official_receipt_no"> · OR no. {{ d.official_receipt_no }}</span>.
-                                Your QR code is no longer needed.
+                                You can use it as a requirement for other requests.
                             </p>
+                            <a v-if="d.level === 'barangay'" :href="route('documents.pdf', d.id)" target="_blank" rel="noopener"
+                               class="mt-3 inline-flex items-center gap-2 rounded-xl bg-emerald-700 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-800">
+                                <Download class="h-4 w-4" /> Download PDF certificate
+                            </a>
                         </div>
                     </article>
                 </div>

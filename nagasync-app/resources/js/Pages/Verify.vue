@@ -35,7 +35,7 @@ defineProps({
                     <div v-else-if="awaitingClaim" class="mb-4 rounded-xl bg-amber-100 p-3 text-center text-amber-900">
                         <p class="text-lg font-bold">APPROVED, NOT YET ISSUED</p>
                         <p class="mt-1 text-sm">
-                            This request was approved but has not been claimed at City Hall yet. It becomes a valid document
+                            This request was approved but has not been claimed at the issuing office yet. It becomes a valid document
                             only after the fee is paid and it is handed over at the counter.
                         </p>
                     </div>

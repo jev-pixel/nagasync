@@ -20,11 +20,12 @@ const actionFor = (s) => actions[s] ?? { label: label(s), icon: null, cls: 'bg-w
 const label = (s) => String(s ?? '').replace(/_/g, ' ');
 const needsReason = ['rejected', 'revoked', 'needs_resubmission'];
 const confirmText = {
-    approved: 'The resident will see this document as approved and get a verification QR code.',
+    approved: 'The resident will see this document as approved. A free document is issued immediately; a paid one is released at the counter.',
     rejected: 'The resident will see your reason. They can submit a new request.',
     revoked: 'The document will no longer be valid. The resident will see your reason.',
     needs_resubmission: 'The resident will see what to fix and can send the request again.',
 };
+const peso = (n) => new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(Number(n ?? 0));
 const isOpen = (st) => ['pending', 'processing', 'needs_resubmission'].includes(st);
 const reasonChips = ['Incomplete information', 'Cannot verify residency', 'Duplicate request', 'Blurry or missing attachment'];
 
@@ -88,7 +89,7 @@ function confirm() {
         <div class="mx-auto max-w-5xl space-y-5 p-4 sm:p-6">
             <p class="rounded-2xl bg-[#F1E8F6] p-4 text-sm text-[#3D2470]">
                 Review each request, then use the buttons on its card. <strong>Start processing</strong> tells the resident you are working on it.
-                <strong>Approve</strong> issues the document.
+                <strong>Approve</strong> issues a free document straight away; a paid one waits at the counter until the fee is collected.
             </p>
 
             <!-- Search + status filter -->
@@ -114,15 +115,17 @@ function confirm() {
                 <article v-for="d in rows" :key="d.id" class="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-black/5">
                     <div class="flex items-start justify-between gap-4">
                         <div class="min-w-0">
+                            <p class="text-xs font-bold uppercase tracking-wide text-[#3D2470]/60">{{ d.level === 'city' ? 'City Hall' : 'Barangay' }}</p>
                             <p class="text-lg font-bold text-[#1B1340]">{{ d.document_type }}</p>
                             <p class="text-sm text-gray-600">For: {{ d.purpose }}</p>
                         </div>
                         <span :class="tone[d.status]" class="shrink-0 rounded-full px-3 py-1 text-xs font-bold capitalize">{{ label(d.status) }}</span>
                     </div>
 
-                    <dl class="mt-3 grid gap-x-6 gap-y-1 text-sm sm:grid-cols-3">
+                    <dl class="mt-3 grid gap-x-6 gap-y-1 text-sm sm:grid-cols-4">
                         <div><dt class="text-xs text-gray-500">Resident</dt><dd class="font-semibold">{{ d.citizen }}</dd></div>
                         <div><dt class="text-xs text-gray-500">Barangay</dt><dd class="font-semibold">{{ d.barangay }}</dd></div>
+                        <div><dt class="text-xs text-gray-500">Fee</dt><dd class="font-semibold">{{ d.fee_total == null ? 'Not assessed' : Number(d.fee_total) > 0 ? peso(d.fee_total) : 'Free' }}</dd></div>
                         <div><dt class="text-xs text-gray-500">Tracking no.</dt><dd class="select-all font-mono text-xs">{{ d.tracking_number }}</dd></div>
                     </dl>
 
@@ -139,7 +142,7 @@ function confirm() {
                         </button>
                         <span v-if="!transitions[d.status]?.length" class="text-sm text-gray-500">No further actions for this status.</span>
                     </div>
-                    <p v-if="d.status === 'approved'" class="mt-2 text-xs text-gray-500">Releasing the document (payment and hand-over) is done at the City Hall counter.</p>
+                    <p v-if="d.status === 'approved'" class="mt-2 text-xs text-gray-500">Releasing the document (payment and hand-over) is done at the Counter page.</p>
                     <p v-if="d.status === 'needs_resubmission' && d.remarks" class="mt-2 text-xs text-orange-700">Sent back: {{ d.remarks }}</p>
                 </article>
             </div>

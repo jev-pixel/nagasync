@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\DocumentRequest;
 use App\Models\DocumentRequirement;
 use App\Models\RequestAttachment;
+use App\Services\DocumentFeeCalculator;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Cache;
@@ -21,7 +22,7 @@ class DocumentController extends Controller
     private const FILE_RULES = ['file', 'mimes:jpg,jpeg,png,pdf', 'max:5120']; // 5 MB
     private const EDITABLE   = ['pending', 'processing', 'needs_resubmission'];
 
-    public function index(Request $request)
+    public function index(Request $request, DocumentFeeCalculator $fees)
     {
         $user = $request->user();
 
@@ -53,11 +54,11 @@ class DocumentController extends Controller
             ->get()
             ->map(fn ($d) => $d->only([
                     'id', 'document_type', 'level', 'purpose', 'tracking_number', 'status',
-                    'remarks', 'issued_at', 'created_at',
+                    'remarks', 'issued_at', 'created_at', 'office', 'purpose_key', 'personal_info',
                     // City Hall fee assessment and counter release
                     'fee_total', 'fee_breakdown', 'released_at', 'official_receipt_no',
                 ]) + [
-                    'verify_url'  => $d->status === 'approved' ? $d->verificationUrl() : null,
+                    'verify_url'  => in_array($d->status, ['approved', 'released'], true) ? $d->verificationUrl() : null,
                     'attachments' => $d->attachments->map(fn ($a) => [
                         'id'                      => $a->id,
                         'document_requirement_id' => $a->document_requirement_id,
@@ -79,36 +80,66 @@ class DocumentController extends Controller
             ],
             // Types where the business itself is the purpose: the page skips "What is it for?"
             'purposeless'  => DocumentRequest::PURPOSELESS_TYPES,
+            // Per type: the purposes a citizen picks from (with their fee) and the details asked for
+            'purposes'     => collect(DocumentRequest::TYPES)
+                ->mapWithKeys(fn ($t) => [$t => collect($fees->purposes($t))
+                    ->map(fn ($p, $k) => [
+                        'key' => $k, 'label' => $p['label'], 'fee' => (float) $p['fee'], 'student' => (bool) ($p['student'] ?? false),
+                    ])->values()->all()])
+                ->filter(fn ($p) => $p !== [])->all(),
+            'personalFields' => config('nagasync_documents.personal_info'),
             'requirements' => $requirements
                 ->map(fn ($r) => $r->only([
                     'id', 'document_type', 'name', 'description', 'is_required',
-                    'kind', 'satisfied_by_type', 'allow_upload_fallback', 'max_age_days',
+                    'kind', 'satisfied_by_type', 'allow_upload_fallback', 'max_age_days', 'purpose_keys',
                 ]))
                 ->groupBy('document_type'),
             'linkable'     => (object) $linkable,
             'inProgress'   => (object) $inProgress,
             'documents'    => $docs,
+            'convenienceFee' => (float) config('nagasync.convenience_fee') / 100, // centavos -> pesos
         ]);
     }
 
-    public function store(Request $request)
+    public function store(Request $request, DocumentFeeCalculator $fees)
     {
         $user = $request->user();
 
+        $type     = is_string($request->input('document_type')) ? $request->input('document_type') : '';
+        $purposes = $fees->purposes($type);                                   // key => label/fee, or [] (free-text purpose)
+        $fields   = config('nagasync_documents.personal_info')[$type] ?? [];  // the details printed on the certificate
+
+        $personalRules = [];
+        foreach ($fields as $f) {
+            $personalRules["personal_info.{$f['key']}"] = $this->personalRule($f);
+        }
+
         $data = $request->validate([
             'document_type' => ['required', Rule::in(DocumentRequest::TYPES)],
+            // A type with a purpose list asks for one of its keys; the others keep the free-text box
+            'purpose_key'   => $purposes ? ['required', Rule::in(array_keys($purposes))] : ['nullable'],
             // Not asked for documents where the business itself is the purpose (e.g. Business Permit)
             'purpose'       => [
-                Rule::requiredIf(! in_array($request->input('document_type'), DocumentRequest::PURPOSELESS_TYPES, true)),
+                Rule::requiredIf(! $purposes && ! in_array($type, DocumentRequest::PURPOSELESS_TYPES, true)),
                 'nullable', 'string', 'max:255',
             ],
+            'personal_info' => ['nullable', 'array'],
+            ...$personalRules,
             'files'         => ['nullable', 'array'],
             'files.*'       => self::FILE_RULES,
             'links'         => ['nullable', 'array'],
             'links.*'       => ['nullable', 'integer'],
         ]);
 
-        $data['purpose'] = filled($data['purpose'] ?? null) ? $data['purpose'] : 'Business operation';
+        $purposeKey = $purposes ? $data['purpose_key'] : null;
+        $data['purpose'] = $purposeKey
+            ? $purposes[$purposeKey]['label']
+            : (filled($data['purpose'] ?? null) ? $data['purpose'] : 'Business operation');
+
+        // Keep only the declared fields, drop blanks
+        $personalInfo = collect($fields)
+            ->mapWithKeys(fn ($f) => [$f['key'] => data_get($data, "personal_info.{$f['key']}")])
+            ->filter(fn ($v) => filled($v))->all();
 
         if (! $user->barangay_id) {
             return back()->withErrors(['document_type' => 'Set your barangay before requesting documents.']);
@@ -127,9 +158,22 @@ class DocumentController extends Controller
             ]);
         }
 
+        // Some documents can be obtained only once (RA 11261: First-Time Jobseeker)
+        if (in_array($type, DocumentRequest::ONCE_ONLY, true)
+            && $user->documentRequests()
+                ->where('document_type', $type)
+                ->whereIn('status', [...self::EDITABLE, 'approved', 'released'])
+                ->exists()
+        ) {
+            return back()->withErrors([
+                'document_type' => 'You already have this document. It can be obtained only once.',
+            ]);
+        }
+
         // Only requirements configured for this type are honoured; unknown ids are ignored.
         $requirements = DocumentRequirement::active()
             ->where('document_type', $data['document_type'])
+            ->forPurpose($purposeKey)
             ->orderBy('sort_order')
             ->get();
 
@@ -154,6 +198,11 @@ class DocumentController extends Controller
             $hasFile[$req->id] = $request->hasFile("files.{$req->id}")
                 && (! $req->isIssuedKind() || $req->allow_upload_fallback);
 
+            // A camera requirement takes a photo, never a PDF
+            if ($hasFile[$req->id] && $req->isCameraKind() && ! $this->isImage($request->file("files.{$req->id}"))) {
+                $errors["files.{$req->id}"] = 'Take the photo with your camera (JPG or PNG).';
+            }
+
             if ($req->is_required && ! isset($linked[$req->id]) && ! $hasFile[$req->id] && ! isset($errors["files.{$req->id}"])) {
                 $errors["files.{$req->id}"] = $req->isIssuedKind()
                     ? "Link your approved {$req->satisfied_by_type}" . ($req->allow_upload_fallback ? ' or upload a copy.' : '.')
@@ -168,13 +217,22 @@ class DocumentController extends Controller
         $storedPaths = [];
 
         try {
-            DB::transaction(function () use ($user, $data, $requirements, $linked, $hasFile, $request, &$storedPaths) {
+            DB::transaction(function () use ($user, $data, $requirements, $linked, $hasFile, $request, $fees, $purposeKey, $personalInfo, &$storedPaths) {
                 $doc = $user->documentRequests()->create(
                     Arr::only($data, ['document_type', 'purpose']) + [
+                        'purpose_key'     => $purposeKey,
+                        'personal_info'   => $personalInfo ?: null,
                         'barangay_id'     => $user->barangay_id,
                         'tracking_number' => DocumentRequest::generateTrackingNumber(),
                     ]
                 );
+
+                // The fee is frozen now unless staff must enter a declared amount (permits, cedula).
+                // Free documents get a zero fee, so they can be issued the moment they are approved.
+                if (! $fees->needsDeclaredAmount($doc->document_type)) {
+                    $fee = $fees->compute($doc);
+                    $doc->update(['fee_total' => $fee['total'], 'fee_breakdown' => $fee, 'fee_computed_at' => now()]);
+                }
 
                 foreach ($requirements as $req) {
                     if (isset($linked[$req->id])) {
@@ -222,6 +280,10 @@ class DocumentController extends Controller
         abort_if($requirement->isIssuedKind() && ! $requirement->allow_upload_fallback, 422);
 
         $request->validate(['file' => array_merge(['required'], self::FILE_RULES)]);
+
+        if ($requirement->isCameraKind() && ! $this->isImage($request->file('file'))) {
+            throw ValidationException::withMessages(['file' => 'Take the photo with your camera (JPG or PNG).']);
+        }
 
         $existing = $documentRequest->attachments()
             ->where('document_requirement_id', $requirement->id)
@@ -293,7 +355,7 @@ class DocumentController extends Controller
     public function qr(Request $request, DocumentRequest $documentRequest)
     {
         abort_unless($documentRequest->user_id === $request->user()->id, 403);
-        abort_unless($documentRequest->status === 'approved', 404);
+        abort_unless(in_array($documentRequest->status, ['approved', 'released'], true), 404);
 
         $url = $documentRequest->verificationUrl();
         $svg = Cache::remember('qr:' . md5($url), now()->addDay(), fn () =>
@@ -306,6 +368,25 @@ class DocumentController extends Controller
     }
 
     // ---- helpers ---------------------------------------------------------
+
+    /** Validation rules for one personal-info field (see config/nagasync_documents.php). */
+    private function personalRule(array $f): array
+    {
+        return array_merge(
+            [($f['required'] ?? false) ? 'required' : 'nullable'],
+            match ($f['type'] ?? 'text') {
+                'date'   => ['date', 'before_or_equal:today'],
+                'number' => ['numeric', 'min:0', 'max:100000000'],
+                'select' => [Rule::in($f['options'] ?? [])],
+                default  => ['string', 'max:150'],
+            }
+        );
+    }
+
+    private function isImage(?\Illuminate\Http\UploadedFile $file): bool
+    {
+        return $file !== null && in_array($file->getMimeType(), ['image/jpeg', 'image/png'], true);
+    }
 
     private function authorizeEdit(Request $request, DocumentRequest $doc, DocumentRequirement $requirement): void
     {

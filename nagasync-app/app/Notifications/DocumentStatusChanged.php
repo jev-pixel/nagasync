@@ -28,7 +28,10 @@ class DocumentStatusChanged extends Notification implements ShouldQueue
         $ref = "{$d->document_type} ({$d->tracking_number})";
 
         return match ($d->status) {
-            'approved' => "NagaSync: Your {$ref} is approved. View it under My Documents.",
+            'approved' => $d->requiresPayment()
+                ? "NagaSync: Your {$ref} is approved. Pay PHP " . number_format((float) $d->fee_total, 2) . ' at the counter to claim it.'
+                : "NagaSync: Your {$ref} is approved. View it under My Documents.",
+            'released' => "NagaSync: Your {$ref} is now issued. View it under My Documents.",
             'rejected' => "NagaSync: Your {$ref} was not approved. Reason: " . ($d->remarks ?: 'see the portal') . '.',
             'revoked'  => "NagaSync: Your {$ref} has been revoked. Reason: " . ($d->remarks ?: 'see the portal') . '.',
             default    => "NagaSync: Your {$ref} is now {$d->status}.",

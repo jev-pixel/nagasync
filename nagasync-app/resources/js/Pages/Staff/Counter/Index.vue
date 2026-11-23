@@ -1,21 +1,22 @@
 <script setup>
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue'; // swap for your NagaSync layout
 import { Head, router, useForm } from '@inertiajs/vue3';
-import { watch } from 'vue';
+import { computed, watch } from 'vue';
 
 const props = defineProps({ q: String, doc: Object, error: String })
 
 const search = useForm({ q: props.q ?? '' })
-const find = () => router.get(route('staff.counter.index'), { q: search.q }, { preserveState: true })
+const find = () => router.get(route('staff.index'), { q: search.q }, { preserveState: true })
 
-const release = useForm({ official_receipt_no: '', amount_paid: props.doc?.fee?.total ?? '', id_checked: false })
+const release = useForm({ official_receipt_no: '', amount_paid: props.doc?.fee?.total ?? 0, id_checked: false })
 watch(() => props.doc?.id, () => {
   release.reset()
-  release.amount_paid = props.doc?.fee?.total ?? ''
+  release.amount_paid = props.doc?.fee?.total ?? 0
 })
 const submitRelease = () =>
-  release.post(route('staff.counter.release', props.doc.id), { preserveScroll: true })
+  release.post(route('staff.release', props.doc.id), { preserveScroll: true })
 
+const isFree = computed(() => Number(props.doc?.fee?.total ?? 0) <= 0)
 const peso = (n) => new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(n ?? 0)
 </script>
 
@@ -23,7 +24,8 @@ const peso = (n) => new Intl.NumberFormat('en-PH', { style: 'currency', currency
   <Head title="Counter" />
   <AuthenticatedLayout>
     <div class="mx-auto max-w-3xl space-y-4 p-4">
-      <h1 class="text-lg font-semibold">City Hall counter</h1>
+      <h1 class="text-lg font-semibold">Counter</h1>
+      <p class="text-sm text-gray-500">Release approved documents for your barangay or City Hall office. Free documents need no payment or receipt.</p>
 
       <form class="flex gap-2" @submit.prevent="find">
         <input v-model="search.q" autofocus placeholder="Scan the QR code or type the tracking number"
@@ -78,7 +80,8 @@ const peso = (n) => new Intl.NumberFormat('en-PH', { style: 'currency', currency
             <input v-model="release.id_checked" type="checkbox" />
             I checked the citizen's valid ID against the name above.
           </label>
-          <div class="grid grid-cols-2 gap-3">
+          <p v-if="isFree" class="rounded-lg bg-emerald-50 p-2 text-sm text-emerald-800">No fee for this document. Just confirm the ID and release.</p>
+          <div v-else class="grid grid-cols-2 gap-3">
             <div>
               <input v-model="release.official_receipt_no" placeholder="Official receipt no." class="w-full rounded-lg border px-3 py-2" />
               <p v-if="release.errors.official_receipt_no" class="text-xs text-red-600">{{ release.errors.official_receipt_no }}</p>
@@ -90,7 +93,7 @@ const peso = (n) => new Intl.NumberFormat('en-PH', { style: 'currency', currency
           </div>
           <button :disabled="release.processing || !release.id_checked"
                   class="rounded-lg bg-orange-600 px-4 py-2 text-white disabled:opacity-50">
-            Collect payment and release
+            {{ isFree ? 'Release document' : 'Collect payment and release' }}
           </button>
         </form>
       </div>

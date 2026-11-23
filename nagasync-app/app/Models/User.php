@@ -18,6 +18,7 @@ class User extends Authenticatable
     public const ROLES = [
         'citizen',
         'barangay_staff',
+        'city_staff',
         'treasury',
         'mdrrmo',
         'admin',

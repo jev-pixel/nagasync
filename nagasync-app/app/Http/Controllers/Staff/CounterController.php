@@ -3,7 +3,9 @@
 namespace App\Http\Controllers\Staff;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\ReviewAccess;
 use App\Models\DocumentRequest;
+use App\Notifications\DocumentStatusChanged;
 use App\Services\DocumentFeeCalculator;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -35,9 +37,13 @@ class CounterController extends Controller
 
     public function release(Request $request, DocumentRequest $documentRequest)
     {
+        // Each clerk releases only what their office handles (barangay staff: their barangay's documents)
+        abort_unless(ReviewAccess::canReview($request->user(), $documentRequest), 403);
+
+        // The receipt number and amount are checked below, once the fee is known: a free document needs neither
         $data = $request->validate([
-            'official_receipt_no' => ['required', 'string', 'max:50'],
-            'amount_paid'         => ['required', 'numeric', 'min:0'],
+            'official_receipt_no' => ['nullable', 'string', 'max:50'],
+            'amount_paid'         => ['nullable', 'numeric', 'min:0'],
             'id_checked'          => ['accepted'],
         ]);
 
@@ -55,7 +61,15 @@ class CounterController extends Controller
                 ? ['total' => (float) $doc->fee_total, 'breakdown' => $doc->fee_breakdown]
                 : (function () use ($doc) { $f = $this->fees->compute($doc); return ['total' => $f['total'], 'breakdown' => $f]; })();
 
-            if (abs((float) $data['amount_paid'] - $fee['total']) > 0.009) {
+            $paid = (float) ($data['amount_paid'] ?? 0);
+
+            if ($fee['total'] > 0 && blank($data['official_receipt_no'] ?? null)) {
+                throw ValidationException::withMessages([
+                    'official_receipt_no' => 'Enter the official receipt number for this payment.',
+                ]);
+            }
+
+            if (abs($paid - $fee['total']) > 0.009) {
                 throw ValidationException::withMessages([
                     'amount_paid' => 'Amount paid does not match the amount due.',
                 ]);
@@ -65,8 +79,8 @@ class CounterController extends Controller
                 'fee_total'           => $fee['total'],
                 'fee_breakdown'       => $fee['breakdown'],
                 'fee_computed_at'     => $doc->fee_computed_at ?? now(),
-                'amount_paid'         => $data['amount_paid'],
-                'official_receipt_no' => $data['official_receipt_no'],
+                'amount_paid'         => $paid,
+                'official_receipt_no' => $data['official_receipt_no'] ?? null,
                 'status'              => 'released',
                 'released_at'         => now(),
                 'released_by'         => $request->user()->id,
@@ -77,7 +91,9 @@ class CounterController extends Controller
             // The Auditable trait on DocumentRequest logs this update.
         });
 
-        return back()->with('success', 'Released. The QR code can no longer be used.');
+        $documentRequest->refresh()->user?->notify(new DocumentStatusChanged($documentRequest));
+
+        return back()->with('success', 'Released. The document is now valid and can be verified by its QR code.');
     }
 
     // ---- helpers ---------------------------------------------------------
@@ -110,8 +126,8 @@ class CounterController extends Controller
             return [null, 'No request matches that tracking number or QR code.'];
         }
 
-        if (! $doc->isCityLevel()) {
-            return [null, 'This is a barangay document. It is claimed at the barangay hall.'];
+        if (! ReviewAccess::canReview(request()->user(), $doc)) {
+            return [null, 'This document is handled by another office.'];
         }
 
         return [$doc->load(['user.barangay', 'attachments.requirement', 'attachments.linkedDocument']), null];

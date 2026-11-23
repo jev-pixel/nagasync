@@ -14,13 +14,11 @@ class VerificationController extends Controller
         // counter (status "released"). Until then it is approved but not yet valid for anyone
         // relying on it. Barangay documents are valid once approved.
         $isCity = $documentRequest->isCityLevel();
-        $valid  = $isCity
-            ? $documentRequest->status === 'released'
-            : in_array($documentRequest->status, ['approved', 'released'], true);
+        $valid  = $documentRequest->status === 'released';
 
         return Inertia::render('Verify', [
             'valid'          => $valid,
-            'awaitingClaim'  => $isCity && $documentRequest->status === 'approved',
+            'awaitingClaim'  => $documentRequest->status === 'approved',
             'status'         => $documentRequest->status,
             'trackingNumber' => $documentRequest->tracking_number,
             'documentType'   => $documentRequest->document_type,

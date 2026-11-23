@@ -22,7 +22,7 @@ class PaymentController extends Controller
                 ->map(fn ($p) => [
                     'id' => $p->id, 'reference_no' => $p->reference_no,
                     'payment_type' => $p->payment_type,
-                    'label' => $types[$p->payment_type]['label'] ?? $p->payment_type,
+                    'label' => $types[$p->payment_type]['label'] ?? ($p->meta['label'] ?? $p->payment_type),
                     'total' => $p->total, 'status' => $p->status,
                     'paid_at' => $p->paid_at?->toDayDateTimeString(),
                 ]),

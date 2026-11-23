@@ -15,12 +15,12 @@ class CheckoutController extends Controller
         abort_unless($payment->user_id === $request->user()->id, 403);
 
         if ($payment->status !== 'pending') {
-            return redirect()->route('payments.index');
+            return $this->back($payment);
         }
 
         return Inertia::render('Payments/SandboxCheckout', [
             'reference' => $payment->reference_no,
-            'label'     => config("nagasync.payment_types.{$payment->payment_type}.label"),
+            'label'     => $payment->meta['label'] ?? config("nagasync.payment_types.{$payment->payment_type}.label"),
             'total'     => $payment->total,
         ]);
     }
@@ -32,6 +32,12 @@ class CheckoutController extends Controller
 
         $processor->settle($payment->reference_no, $outcome);
 
-        return redirect()->route('payments.index')->with('success', 'Sandbox payment ' . $outcome . '.');
+        return $this->back($payment)->with('success', 'Sandbox payment ' . $outcome . '.');
+    }
+
+    /** Document-fee payments go back to My Documents (residents cannot open the payments page). */
+    private function back(MunicipalPayment $payment)
+    {
+        return redirect()->route($payment->payment_type === 'document_fee' ? 'documents.index' : 'payments.index');
     }
 }

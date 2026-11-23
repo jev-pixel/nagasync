@@ -35,11 +35,7 @@ class DashboardController extends Controller
         // Documents are also limited by office: barangay staff never see City Hall requests
         // (even from their own barangay), and City Hall staff only see City Hall requests.
         $docs = $scope(DocumentRequest::query());
-        $docs = match ($role) {
-            'barangay_staff' => $docs->where('level', DocumentRequest::LEVEL_BARANGAY),
-            'city_staff' => $docs->where('level', DocumentRequest::LEVEL_CITY),
-            default => $docs,
-        };
+        $docs = in_array($role, ReviewAccess::ROLES, true) ? ReviewAccess::scopeQueue($user, $docs) : $docs;
 
         $openStatuses = ['pending', 'processing', 'needs_resubmission'];
         $docCount = fn (array $statuses) => (clone $docs)->whereIn('status', $statuses)->count();
@@ -60,7 +56,7 @@ class DashboardController extends Controller
                 $metric('Pending', $docCount(['pending']), 'orange', 'list', $url('staff.documents.index')),
                 $metric('Processing', $docCount(['processing']), 'teal', 'file', $url('staff.documents.index')),
                 $metric('Approved today', (clone $docs)->where('status', 'approved')->whereDate('issued_at', today())->count(), 'violet', 'check', $url('staff.documents.index')),
-                $metric('Paid today', (clone $paidToday)->count(), 'coral', 'wallet', $url('payments.index')),
+                $metric('Ready for the counter', $docCount(['approved']), 'coral', 'wallet', $url('staff.index')),
             ],
             'city_staff' => [
                 $metric('Awaiting review', $docCount($openStatuses), 'orange', 'list', $url('staff.documents.index')),

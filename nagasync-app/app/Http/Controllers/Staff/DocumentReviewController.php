@@ -18,7 +18,7 @@ class DocumentReviewController extends Controller
     private const QUEUE_STATUSES = ['processing', 'approved', 'rejected', 'revoked', 'needs_resubmission'];
 
     // Statuses that trigger a notification to the resident.
-    private const NOTIFY_STATUSES = ['approved', 'rejected', 'revoked', 'needs_resubmission'];
+    private const NOTIFY_STATUSES = ['approved', 'released', 'rejected', 'revoked', 'needs_resubmission'];
 
     public function index(Request $request)
     {
@@ -73,12 +73,28 @@ class DocumentReviewController extends Controller
                 'Invalid status change.'
             );
 
+            $approving = $data['status'] === 'approved';
+
             $doc->update([
-                'status'       => $data['status'],
-                'remarks'      => $data['remarks'] ?? $doc->remarks,
-                'processed_by' => $user->id,
-                'issued_at'    => $data['status'] === 'approved' ? now() : $doc->issued_at,
+                'status'         => $data['status'],
+                'remarks'        => $data['remarks'] ?? $doc->remarks,
+                'processed_by'   => $user->id,
+                'issued_at'      => $approving ? now() : $doc->issued_at,
+                // Remember who signed, so a reissued document keeps the original signatory
+                'signatory_name' => $approving && ! $doc->isCityLevel()
+                    ? ($doc->barangay?->captain_name ?? $doc->signatory_name)
+                    : $doc->signatory_name,
             ]);
+
+            // A free barangay document needs no payment: it is issued the moment it is approved.
+            if ($approving && ! $doc->isCityLevel() && ! $doc->requiresPayment()) {
+                $doc->update([
+                    'status'      => 'released',
+                    'amount_paid' => 0,
+                    'released_at' => now(),
+                    'released_by' => $user->id,
+                ]);
+            }
 
             return $doc;
         });
