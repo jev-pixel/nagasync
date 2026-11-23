@@ -1,11 +1,24 @@
 <script setup>
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { useNavigation } from '@/navigation';
-import { Head, Link } from '@inertiajs/vue3';
-import { ChevronRight, LogOut, UserRound } from 'lucide-vue-next';
+import { Head, Link, usePage } from '@inertiajs/vue3';
+import { ChevronRight, FileText, Landmark, LogOut, UserRound } from 'lucide-vue-next';
 import { computed } from 'vue';
 
-const { items } = useNavigation();
+// { barangay: [{ type, requirements }], city_hall: [...] }. Sent by ServicesController, citizens only.
+const props = defineProps({
+    requestTypes: { type: Object, default: () => ({ barangay: [], city_hall: [] }) },
+});
+
+const { items, verified } = useNavigation();
+const isCitizen = computed(() => usePage().props.auth.user?.role === 'citizen');
+
+// Citizen mobile layout: the "Requests" list row is replaced by one button per kind of request.
+const requestSections = computed(() => [
+    { key: 'barangay', title: 'Barangay requests', icon: FileText, tone: 'bg-ns-orange/20', types: props.requestTypes?.barangay ?? [] },
+    { key: 'city_hall', title: 'City Hall requests', icon: Landmark, tone: 'bg-ns-teal/25', types: props.requestTypes?.city_hall ?? [] },
+].filter((sec) => sec.types.length));
+const showRequestGrid = computed(() => isCitizen.value && verified.value && requestSections.value.length > 0);
 
 // What each menu item is for, shown under its name
 const DESC = {
@@ -57,7 +70,34 @@ const row = 'flex items-center gap-3 px-4 py-3 transition hover:bg-ns-mist activ
         <template #header>Services</template>
 
         <div class="mx-auto max-w-3xl space-y-6">
-            <section v-for="g in groups" :key="g.title" :aria-label="g.title">
+            <!-- Citizen, mobile only: a button grid for each kind of request -->
+            <div v-if="showRequestGrid" class="space-y-6 md:hidden">
+                <section v-for="sec in requestSections" :key="sec.key" :aria-label="sec.title">
+                    <h2 class="mb-2 px-1 text-xs font-semibold uppercase tracking-widest text-slate-500">{{ sec.title }}</h2>
+                    <div class="grid grid-cols-2 gap-2.5">
+                        <Link v-for="t in sec.types" :key="t.type" :href="route('documents.index', { type: t.type })"
+                              class="flex flex-col items-start gap-2 rounded-2xl border border-ns-mist bg-white p-3 text-left shadow-card transition active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ns-violet">
+                            <span :class="['flex h-11 w-11 items-center justify-center rounded-xl text-ns-navy', sec.tone]">
+                                <component :is="sec.icon" class="h-5 w-5" aria-hidden="true" />
+                            </span>
+                            <span class="block text-sm font-semibold leading-snug">{{ t.type }}</span>
+                            <span class="block text-xs text-slate-500">{{ t.requirements }} {{ t.requirements === 1 ? 'requirement' : 'requirements' }}</span>
+                        </Link>
+                    </div>
+                </section>
+
+                <Link :href="route('documents.index')"
+                      class="flex items-center gap-3 rounded-2xl border border-ns-mist bg-white px-4 py-3 shadow-card transition active:bg-ns-mist focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ns-violet">
+                    <span class="min-w-0 flex-1">
+                        <span class="block text-sm font-semibold">My requests</span>
+                        <span class="block text-xs text-slate-500">Track and manage your documents</span>
+                    </span>
+                    <ChevronRight class="h-4 w-4 shrink-0 opacity-40" aria-hidden="true" />
+                </Link>
+            </div>
+
+            <section v-for="g in groups" :key="g.title" :aria-label="g.title"
+                     :class="showRequestGrid && g.title === 'Requests' ? 'hidden md:block' : ''">
                 <h2 class="mb-2 px-1 text-xs font-semibold uppercase tracking-widest text-slate-500">{{ g.title }}</h2>
                 <ul class="divide-y divide-ns-mist overflow-hidden rounded-2xl border border-ns-mist bg-white shadow-card">
                     <li v-for="i in g.rows" :key="i.key">

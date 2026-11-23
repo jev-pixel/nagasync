@@ -37,6 +37,15 @@ const ROLE_LABELS = {
 const role = computed(() => usePage().props.auth.user?.role);
 const roleLabel = computed(() => ROLE_LABELS[role.value] ?? 'Account');
 const services = computed(() => allServices.filter((s) => s.roles.includes(role.value)));
+
+// Mobile citizen view: the hub shows only Request Documents, Guide and News.
+// Other roles, and tablet/desktop, keep the full list above.
+const guideService = { title: 'Guide', sub: 'News and how-to', href: route('guide.index', {}, false), icon: 'clipboard', tone: 'teal' };
+const newsService = { title: 'News', sub: 'City updates', href: route('news.index', {}, false), icon: 'newspaper', tone: 'violet' };
+const isCitizen = computed(() => role.value === 'citizen');
+const mobileServices = computed(() => (isCitizen.value
+    ? [allServices.find((s) => s.title === 'Request Documents'), guideService, newsService].filter(Boolean)
+    : services.value));
 const canSeePolls = computed(() => ['citizen', 'admin'].includes(role.value));
 
 // The controller sends the same cards to everyone. Drop the ones that link to a module this role
@@ -134,13 +143,13 @@ const panel = 'rounded-2xl border border-ns-mist bg-white shadow-card';
                 </div>
 
                 <!-- Mobile: icon tiles -->
-                <div class="grid grid-cols-4 gap-2 md:hidden">
-                    <Link v-for="s in services" :key="s.href" :href="s.href"
+                <div :class="['grid gap-2 md:hidden', isCitizen ? 'grid-cols-3' : 'grid-cols-4']">
+                    <Link v-for="s in mobileServices" :key="s.href" :href="s.href"
                           class="flex flex-col items-center gap-1.5 rounded-xl border border-ns-mist p-2 text-center transition active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ns-violet">
                         <span :class="['flex h-11 w-11 items-center justify-center rounded-xl', toneBg[s.tone]]">
                             <component :is="iconFor(s.icon)" class="h-5 w-5" aria-hidden="true" />
                         </span>
-                        <span class="text-[11px] font-semibold leading-tight">{{ s.title }}</span>
+                        <span :class="['font-semibold leading-tight', isCitizen ? 'text-xs' : 'text-[11px]']">{{ s.title }}</span>
                     </Link>
                 </div>
 
@@ -199,11 +208,11 @@ const panel = 'rounded-2xl border border-ns-mist bg-white shadow-card';
                     <h3 class="flex items-center gap-2 text-base font-bold">
                         <Newspaper class="h-4 w-4 text-ns-violet" aria-hidden="true" /> Latest news
                     </h3>
-                    <Link :href="route('guide.index') + '#news'" class="text-sm font-semibold text-ns-violet hover:underline">See all ›</Link>
+                    <Link :href="route('news.index')" class="text-sm font-semibold text-ns-violet hover:underline">See all ›</Link>
                 </div>
                 <ul class="divide-y divide-ns-mist">
                     <li v-for="n in latestNews" :key="n.title">
-                        <Link :href="route('guide.index') + '#news'"
+                        <Link :href="route('news.index')"
                               class="group flex items-center gap-3 px-5 py-3 transition hover:bg-ns-mist/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ns-violet">
                             <span class="h-16 w-16 shrink-0 overflow-hidden rounded-xl bg-ns-mist">
                                 <img :src="n.img" :style="{ objectPosition: n.focus }" alt="" aria-hidden="true" loading="lazy"

@@ -14,9 +14,11 @@ use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\Directory\ExploreController;
 use App\Http\Controllers\Directory\MyBusinessController;
 use App\Http\Controllers\GuideController;
+use App\Http\Controllers\NewsController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\Responder\DispatchController;
 use App\Http\Controllers\Sandbox\CheckoutController;
+use App\Http\Controllers\ServicesController;
 use App\Http\Controllers\Staff\BusinessReviewController;
 use App\Http\Controllers\Staff\CounterController;
 use App\Http\Controllers\Staff\DocumentReviewController;
@@ -62,6 +64,13 @@ Route::get('/verify/{documentRequest:tracking_number}', [VerificationController:
 |--------------------------------------------------------------------------
 | Access map (enforced here on the server; hiding menu items is only cosmetic):
 |
+|   EVERY SIGNED-IN ACCOUNT (including citizens who are not verified yet)
+|     - Guide     (/guide)     -> guidelines and how to request
+|     - News      (/news)      -> city news and announcements
+|     - Services  (/services)  -> every page the role can open; citizens also get a button
+|                                 grid of the document types they can request
+|     - Profile   (/profile)
+|
 |   CITIZEN
 |     - Request Documents  (/documents)  -> verified residents only
 |     - Market Prices      (/market)
@@ -93,11 +102,15 @@ Route::middleware('auth')->group(function () {
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
 
-    // News, guidelines and how-to-request: the landing area for unverified accounts
+    // Guidelines and how-to-request: the landing area for unverified accounts
     Route::get('/guide', GuideController::class)->name('guide.index');
 
-    // Services: every page the signed-in role can open, grouped (the mobile bottom bar's "Services" tab)
-    Route::get('/services', fn () => Inertia::render('Services'))->name('services.index');
+    // City news and announcements (separate from the Guide; also open to unverified accounts)
+    Route::get('/news', NewsController::class)->name('news.index');
+
+    // Services: every page the signed-in role can open, grouped (the mobile bottom bar's "Services" tab).
+    // Citizens also get the list of document types they can request (barangay and City Hall).
+    Route::get('/services', ServicesController::class)->name('services.index');
 
     // Private requirement files: owner or reviewing staff only (authorised in the controller)
     Route::get('/attachments/{attachment}', [AttachmentController::class, 'show'])->name('attachments.show');

@@ -14,6 +14,7 @@ const STAFF = ['barangay_staff', 'city_staff', 'admin'];
 const ALL = [
     { key: 'dashboard', label: 'Home', route: 'dashboard', match: ['dashboard'], icon: 'gauge', roles: '*' },
     { key: 'guide', label: 'Guide', route: 'guide.index', match: ['guide.*'], icon: 'clipboard', roles: '*' },
+    { key: 'news', label: 'News', route: 'news.index', match: ['news.*'], icon: 'newspaper', roles: '*' },
     { key: 'documents', label: 'Documents', route: 'documents.index', match: ['documents.*'], icon: 'file', roles: ['citizen', 'barangay_staff', 'admin'], needsVerified: true },
     { key: 'payments', label: 'Payments', route: 'payments.index', match: ['payments.*'], icon: 'wallet', roles: ['barangay_staff', 'admin'], needsVerified: true },
     { key: 'emergency', label: 'Emergency', route: 'emergency.index', match: ['emergency.*'], icon: 'siren', roles: ['barangay_staff', 'admin'] },
