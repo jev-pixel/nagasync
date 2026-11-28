@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Citizen;
 
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\ReviewAccess;
+use App\Models\AuditLog;
 use App\Models\DocumentRequest;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
@@ -26,6 +27,18 @@ class CertificateController extends Controller
         abort_unless($documentRequest->user_id === $user->id || ReviewAccess::canReview($user, $documentRequest), 403);
         abort_if($documentRequest->isCityLevel(), 404);
         abort_unless($documentRequest->status === 'released', 404); // only valid documents get a certificate
+
+        // Staff printing a copy of someone else's document is recorded (the owner downloading their own is not)
+        if ($documentRequest->user_id !== $user->id) {
+            AuditLog::create([
+                'user_id'        => $user->id,
+                'action'         => 'certificate_downloaded',
+                'auditable_type' => DocumentRequest::class,
+                'auditable_id'   => $documentRequest->id,
+                'ip_address'     => $request->ip(),
+                'user_agent'     => $request->userAgent(),
+            ]);
+        }
 
         $doc = $documentRequest->load(['user:id,name', 'barangay', 'attachments.requirement']);
 

@@ -37,6 +37,16 @@ class DashboardController extends Controller
         $docs = $scope(DocumentRequest::query());
         $docs = in_array($role, ReviewAccess::ROLES, true) ? ReviewAccess::scopeQueue($user, $docs) : $docs;
 
+        // City Hall clerks work from the Counter (what is waiting, find a request, release it)
+        if ($role === 'city_staff') {
+            return redirect()->route('staff.index');
+        }
+
+        // Barangay staff get their own desk inside the command frame
+        if ($role === 'barangay_staff') {
+            return $this->barangayHome($request, $docs);
+        }
+
         $openStatuses = ['pending', 'processing', 'needs_resubmission'];
         $docCount = fn (array $statuses) => (clone $docs)->whereIn('status', $statuses)->count();
         $paidToday = (clone $pays)->where('status', 'paid')->whereDate('paid_at', today());
@@ -169,5 +179,46 @@ class DashboardController extends Controller
         }
 
         return Inertia::render('Dashboard', $props);
+    }
+
+    /**
+     * Barangay staff home: their barangay only. Residents waiting for verification come first
+     * (verifying is what unlocks a citizen's account), then the requests waiting for review.
+     */
+    private function barangayHome(Request $request, $docs)
+    {
+        $user = $request->user();
+        $barangayId = $user->barangay_id;
+
+        // An account with no barangay must see nothing (never every resident without a barangay)
+        $residents = fn () => $barangayId
+            ? User::where('role', 'citizen')->where('barangay_id', $barangayId)
+            : User::whereRaw('1 = 0');
+
+        $waiting = fn () => (clone $docs)->whereIn('status', ['pending', 'processing']);
+
+        return Inertia::render('Staff/BarangayHome', [
+            'barangay' => $user->barangay?->name,
+            'stats' => [
+                'unverified'    => $residents()->whereNull('resident_verified_at')->count(),
+                'awaiting'      => $waiting()->count(),
+                'ready'         => (clone $docs)->where('status', 'approved')->count(),
+                'releasedToday' => (clone $docs)->where('status', 'released')->whereDate('released_at', today())->count(),
+            ],
+            // Longest-waiting first, so nobody is left behind
+            'unverifiedResidents' => $residents()->whereNull('resident_verified_at')
+                ->oldest()->limit(8)->get(['id', 'name', 'email', 'phone', 'created_at'])
+                ->map(fn ($u) => [
+                    'id' => $u->id, 'name' => $u->name, 'email' => $u->email, 'phone' => $u->phone,
+                    'registered' => $u->created_at->toFormattedDateString(),
+                    'registered_human' => $u->created_at->diffForHumans(),
+                ])->values(),
+            'queue' => $waiting()->with('user:id,name')->oldest()->limit(8)->get()
+                ->map(fn ($d) => [
+                    'id' => $d->id, 'tracking_number' => $d->tracking_number,
+                    'document_type' => $d->document_type, 'status' => $d->status,
+                    'citizen' => $d->user?->name, 'created_human' => $d->created_at->diffForHumans(),
+                ])->values(),
+        ]);
     }
 }

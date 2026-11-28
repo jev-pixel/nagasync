@@ -134,7 +134,7 @@ onUnmounted(() => window.removeEventListener('keydown', onGlobalKey));
                 </Link>
             </div>
 
-            <div class="flex h-[1.9rem] items-center overflow-hidden border-t border-white/10 px-4 text-xs font-semibold uppercase tracking-wide text-white/70 md:pl-24 lg:pl-64">
+            <div class="flex h-[1.9rem] items-center overflow-hidden border-t border-white/10 px-4 text-xs font-semibold uppercase tracking-wide text-white/70 md:pl-24 lg:pl-64 [&_*]:!m-0 [&_*]:!text-xs [&_*]:!font-semibold [&_*]:!uppercase [&_*]:!leading-none [&_*]:!tracking-wide [&_*]:!text-white/70">
                 <slot name="header" />
             </div>
         </header>

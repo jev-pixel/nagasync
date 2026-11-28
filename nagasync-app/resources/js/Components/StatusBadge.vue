@@ -24,7 +24,7 @@ const DOTS = { amber: 'bg-amber-500', blue: 'bg-sky-500', green: 'bg-emerald-500
 
 // Add new statuses here once, and every page picks them up
 const MAP = {
-    pending: 'amber', unverified: 'amber', submitted: 'amber', unpaid: 'amber',
+    pending: 'amber', unverified: 'amber', submitted: 'amber', unpaid: 'amber', needs_resubmission: 'amber',
     processing: 'blue', in_review: 'blue', dispatched: 'blue', assessed: 'blue',
     approved: 'green', ready: 'green', claimed: 'green', released: 'green', paid: 'green',
     verified: 'green', resolved: 'green', completed: 'green',

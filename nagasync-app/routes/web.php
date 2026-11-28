@@ -146,7 +146,8 @@ Route::middleware('auth')->group(function () {
         // Pay an approved document's fee online (releases it once paid), and download the PDF certificate
         Route::post('/documents/{documentRequest}/pay', [DocumentPaymentController::class, 'store'])
             ->middleware('throttle:10,1')->name('documents.pay');
-        Route::get('/documents/{documentRequest}/pdf', [CertificateController::class, 'show'])->name('documents.pdf');
+        Route::get('/documents/{documentRequest}/pdf', [CertificateController::class, 'show'])
+        ->middleware('throttle:20,1')->name('documents.pdf');
 
         // Sandbox checkout: residents reach it only through documents.pay
         if (! app()->isProduction()) {

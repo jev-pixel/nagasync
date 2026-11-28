@@ -8,6 +8,7 @@ use App\Models\DocumentRequest;
 use App\Notifications\DocumentStatusChanged;
 use App\Services\DocumentFeeCalculator;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Str;
@@ -20,6 +21,7 @@ class CounterController extends Controller
 
     public function index(Request $request)
     {
+        $user = $request->user();
         $q = trim((string) $request->query('q', ''));
         $doc = null;
         $error = null;
@@ -28,10 +30,40 @@ class CounterController extends Controller
             [$doc, $error] = $this->resolve($q);
         }
 
+        // Everything below is limited by ReviewAccess, so each clerk sees only their own office's work.
+        $scoped = fn () => ReviewAccess::scopeQueue($user, DocumentRequest::query());
+
+        // City Hall requests cannot be approved until their fee is assessed.
+        $toAssess = $scoped()->whereIn('status', ['pending', 'processing'])->whereNull('fee_total')
+            ->get()->filter(fn ($d) => $d->isCityLevel())->count();
+
+        $stats = [
+            'ready'         => $scoped()->where('status', 'approved')->count(),
+            'awaiting'      => $scoped()->whereIn('status', ['pending', 'processing'])->count(),
+            'toAssess'      => $toAssess,
+            'releasedToday' => $scoped()->where('status', 'released')->whereDate('released_at', today())->count(),
+        ];
+
+        // Approved and waiting at the counter, longest-waiting first
+        $ready = $scoped()->with(['user:id,name', 'barangay:id,name'])
+            ->where('status', 'approved')
+            ->oldest('issued_at')->limit(15)->get()
+            ->map(fn ($d) => [
+                'id'              => $d->id,
+                'tracking_number' => $d->tracking_number,
+                'document_type'   => $d->document_type,
+                'citizen'         => $d->user?->name,
+                'barangay'        => $d->barangay?->name,
+                'fee_total'       => $d->fee_total !== null ? (float) $d->fee_total : null,
+                'waiting'         => Carbon::parse($d->issued_at ?? $d->updated_at)->diffForHumans(),
+            ]);
+
         return Inertia::render('Staff/Counter/Index', [
             'q'     => $q,
             'doc'   => $doc ? $this->payload($doc) : null,
             'error' => $error,
+            'stats' => $stats,
+            'ready' => $ready,
         ]);
     }
 
